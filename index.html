@@ -3,111 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لوحة تحكم الأدمن - أوكس</title>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Cairo', sans-serif; }
-        body { background: #0f0a1e; color: #fff; min-height: 100vh; padding: 20px; }
-        
-        /* تنسيق شاشة تسجيل الدخول */
-        .login-container { max-width: 400px; margin: 100px auto; background: #1e1638; padding: 40px 30px; border-radius: 20px; border: 1px solid #6d28d9; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        .login-container h1 { color: #f59e0b; margin-bottom: 10px; font-size: 26px; }
-        .login-container p { color: #a89fc4; font-size: 14px; margin-bottom: 25px; }
-        .login-container input { width: 100%; padding: 13px; margin-bottom: 15px; border-radius: 8px; border: 1px solid #444; background: #0f0a1e; color: #fff; font-family: inherit; font-size: 15px; }
-        .login-container input:focus { outline: none; border-color: #6d28d9; }
-        .login-container button { width: 100%; padding: 13px; background: linear-gradient(135deg, #6d28d9, #8b5cf6); color: #fff; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; font-family: inherit; transition: 0.3s; }
-        .login-container button:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(109, 40, 217, 0.4); }
-        .error-text { color: #ef4444; font-size: 14px; margin-bottom: 10px; display: none; }
-
-        /* تنسيق لوحة التحكم */
-        .dashboard-container { max-width: 1000px; margin: 0 auto; display: none; }
-        .header { background: #1e1638; padding: 20px; border-radius: 15px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; border: 1px solid #6d28d9; }
-        .header h1 { color: #f59e0b; font-size: 22px; }
-        .btn-logout { padding: 10px 20px; background: #ef4444; color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-family: inherit; transition: 0.3s; }
-        .btn-logout:hover { background: #dc2626; }
-
-        /* الإحصائيات */
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 25px; }
-        .stat-card { background: #1e1638; padding: 25px; border-radius: 15px; border: 1px solid rgba(139, 92, 246, 0.3); text-align: center; }
-        .stat-card h3 { color: #a89fc4; font-size: 15px; font-weight: normal; margin-bottom: 10px; }
-        .stat-card .number { font-size: 32px; font-weight: 900; color: #10b981; }
-
-        /* الجدول */
-        .table-card { background: #1e1638; padding: 25px; border-radius: 15px; border: 1px solid #6d28d9; }
-        .table-card h2 { color: #f59e0b; margin-bottom: 20px; font-size: 20px; }
-        table { width: 100%; border-collapse: collapse; text-align: right; }
-        th, td { padding: 15px; border-bottom: 1px solid #333; }
-        th { color: #a89fc4; font-weight: normal; }
-        td { color: #fff; font-size: 14px; }
-        .badge { background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 4px 10px; border-radius: 5px; font-size: 12px; font-weight: bold; }
-    </style>
+    <title>لوحة تحكم المدير - الطلبات المعلقة</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>body{font-family:'Cairo',sans-serif;background:#f3f4f6}</style>
 </head>
-<body>
+<body class="pb-10">
 
-    <!-- 1. شاشة تسجيل الدخول -->
-    <div class="login-container" id="login-view">
-        <h1>👑 لوحة تحكم الأدمن</h1>
-        <p>سجل دخولك للوصول إلى إدارة المتجر</p>
-        
-        <div id="login-error" class="error-text"></div>
-        
-        <input type="email" id="admin-email" placeholder="البريد الإلكتروني">
-        <input type="password" id="admin-pass" placeholder="كلمة المرور">
-        <button onclick="loginAdmin()">تسجيل الدخول</button>
-    </div>
-
-    <!-- 2. شاشة لوحة التحكم (تظهر بعد الدخول) -->
-    <div class="dashboard-container" id="dashboard-view">
-        <div class="header">
-            <h1>مرحباً بك، المدير 👋</h1>
-            <button class="btn-logout" onclick="logoutAdmin()">تسجيل خروج</button>
-        </div>
-
-        <div class="stats-grid">
-            <div class="stat-card">
-                <h3>إجمالي المستخدمين</h3>
-                <div class="number">1,248</div>
+    <div id="loginSection" class="fixed inset-0 bg-gray-100 flex justify-center items-center z-50">
+        <div class="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm">
+            <h2 class="text-2xl font-bold text-center mb-6 text-red-700">لوحة تحكم المدير</h2>
+            <div id="loginError" class="hidden bg-red-100 text-red-700 p-2 rounded mb-4 text-center text-sm"></div>
+            <div class="flex flex-col gap-4">
+                <input type="password" id="adminPass" placeholder="كلمة مرور الإدارة" class="border p-3 rounded-xl outline-none focus:border-red-500">
+                <button id="loginBtn" class="bg-red-700 text-white py-3 rounded-xl font-bold">دخول</button>
             </div>
-            <div class="stat-card">
-                <h3>طلبات اليوم</h3>
-                <div class="number">15</div>
-            </div>
-            <div class="stat-card">
-                <h3>إجمالي الأرباح (ر.س)</h3>
-                <div class="number">3,500</div>
-            </div>
-        </div>
-
-        <div class="table-card">
-            <h2>أحدث العملاء المسجلين</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>الاسم / البريد</th>
-                        <th>الحالة</th>
-                        <th>تاريخ الانضمام</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>مستخدم تجريبي 1</td>
-                        <td><span class="badge">مفعل ✅</span></td>
-                        <td>اليوم 10:30 ص</td>
-                    </tr>
-                    <tr>
-                        <td>مستخدم تجريبي 2</td>
-                        <td><span class="badge">مفعل ✅</span></td>
-                        <td>أمس 08:15 م</td>
-                    </tr>
-                </tbody>
-            </table>
         </div>
     </div>
 
-    <!-- ربط مكتبات Firebase -->
+    <div id="adminPanel" class="hidden">
+        <div class="bg-red-800 text-white p-4 shadow-md flex justify-between items-center">
+            <h1 class="text-lg font-bold"><i class="fa-solid fa-shield-halved ml-2"></i> لوحة الإدارة - طلبات الشحن</h1>
+            <button id="logoutAdmin" class="bg-red-900 hover:bg-red-950 px-4 py-1.5 rounded-lg text-sm transition">تسجيل الخروج</button>
+        </div>
+
+        <div class="max-w-4xl mx-auto p-4 mt-4">
+            <h2 class="text-xl font-bold mb-4 text-gray-800 border-r-4 border-red-700 pr-3" id="requestsTitle">الطلبات المعلقة (0)</h2>
+            <div id="requestsContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getFirestore, collection, query, where, getDocs, doc, updateDoc, increment, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCdV3qgXHHxz4e8mf1c-2TrZujXqY-LuQc",
@@ -119,58 +49,173 @@
         };
 
         const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
+        const db = getFirestore(app);
 
-        // ⚠️ الإيميل الخاص بك كأدمن (تم تعديله)
-        const ADMIN_EMAIL = "almtm9993@gmail.com"; 
+        const ADMIN_PASSWORD = "Admin@2026"; // غير كلمة المرور هنا
+        let isLoggedIn = false;
 
-        const loginView = document.getElementById('login-view');
-        const dashboardView = document.getElementById('dashboard-view');
-        const errorDiv = document.getElementById('login-error');
+        const loginSection = document.getElementById('loginSection');
+        const adminPanel = document.getElementById('adminPanel');
+        const requestsContainer = document.getElementById('requestsContainer');
+        const requestsTitle = document.getElementById('requestsTitle');
 
-        // دالة تسجيل الدخول
-        window.loginAdmin = function() {
-            const email = document.getElementById('admin-email').value;
-            const pass = document.getElementById('admin-pass').value;
-            
-            errorDiv.style.display = 'none';
-            const btn = event.target;
-            btn.textContent = 'جاري الدخول...';
-
-            signInWithEmailAndPassword(auth, email, pass)
-                .then((userCredential) => {
-                    // التحقق: هل هذا الإيميل هو إيميل الأدمن؟
-                    if (userCredential.user.email !== ADMIN_EMAIL) {
-                        signOut(auth); // اطرد أي حد تاني
-                        btn.textContent = 'تسجيل الدخول';
-                        errorDiv.textContent = "عذراً، هذا الحساب ليس لديه صلاحيات الإدارة.";
-                        errorDiv.style.display = 'block';
-                    }
-                })
-                .catch((error) => {
-                    btn.textContent = 'تسجيل الدخول';
-                    errorDiv.textContent = "البريد الإلكتروني أو كلمة المرور غير صحيحة.";
-                    errorDiv.style.display = 'block';
-                });
-        }
-
-        // دالة تسجيل الخروج
-        window.logoutAdmin = function() {
-            signOut(auth);
-        }
-
-        // مراقبة حالة الدخول (هنا السحر كله)
-        onAuthStateChanged(auth, (user) => {
-            if (user && user.email === ADMIN_EMAIL) {
-                // إذا سجل دخول بنجاح كأدمن: أخفي شاشة الدخول وأظهر لوحة التحكم
-                loginView.style.display = 'none';
-                dashboardView.style.display = 'block';
+        document.getElementById('loginBtn').addEventListener('click', () => {
+            const pass = document.getElementById('adminPass').value;
+            if (pass === ADMIN_PASSWORD) {
+                isLoggedIn = true;
+                loginSection.classList.add('hidden');
+                adminPanel.classList.remove('hidden');
+                loadRequests();
             } else {
-                // إذا خرج أو ليس أدمن: أظهر شاشة الدخول
-                loginView.style.display = 'block';
-                dashboardView.style.display = 'none';
+                const err = document.getElementById('loginError');
+                err.textContent = '❌ كلمة المرور غير صحيحة';
+                err.classList.remove('hidden');
             }
         });
+
+        document.getElementById('logoutAdmin').addEventListener('click', () => {
+            isLoggedIn = false;
+            adminPanel.classList.add('hidden');
+            loginSection.classList.remove('hidden');
+            document.getElementById('adminPass').value = '';
+        });
+
+        async function loadRequests() {
+            if (!isLoggedIn) return;
+            requestsContainer.innerHTML = '<p class="text-center col-span-2 text-gray-500">جاري التحميل...</p>';
+            
+            try {
+                const txRef = collection(db, "transactions");
+                const q = query(txRef, where("status", "==", "pending"));
+                const snapshot = await getDocs(q);
+                
+                requestsTitle.textContent = `الطلبات المعلقة (${snapshot.size})`;
+                requestsContainer.innerHTML = '';
+
+                if (snapshot.empty) {
+                    requestsContainer.innerHTML = `
+                        <div class="col-span-2 bg-white p-10 rounded-xl text-center text-gray-500 shadow-sm border">
+                            <i class="fa-solid fa-check-circle text-5xl text-green-500 mb-4"></i>
+                            <h3 class="text-xl font-bold">لا توجد طلبات معلقة حالياً</h3>
+                            <p class="text-sm mt-2">كل الطلبات تمت معالجتها.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                // جلب بيانات المستخدمين بشكل منفصل (لأن Firebase لا يدعم JOIN)
+                const userIds = [...new Set(snapshot.docs.map(d => d.data().user_id))];
+                const usersMap = {};
+                for (const uid of userIds) {
+                    const userDoc = await getDoc(doc(db, "users", uid));
+                    if (userDoc.exists()) usersMap[uid] = userDoc.data();
+                }
+
+                snapshot.forEach(docSnap => {
+                    const tx = docSnap.data();
+                    const txId = docSnap.id;
+                    const user = usersMap[tx.user_id] || { full_name: 'غير معروف', account_number: '---' };
+                    
+                    let dateStr = '';
+                    if (tx.created_at) {
+                        const d = tx.created_at.toDate();
+                        dateStr = `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()} - ${d.getHours()}:${d.getMinutes()}`;
+                    }
+
+                    const card = document.createElement('div');
+                    card.className = "bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden";
+                    card.innerHTML = `
+                        <div class="bg-gray-50 p-3 border-b flex justify-between items-center">
+                            <span class="text-sm font-bold text-gray-700">طلب #${txId.slice(0,6)}</span>
+                            <span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">قيد الانتظار</span>
+                        </div>
+                        <div class="p-4 flex flex-col gap-2 text-sm text-gray-700">
+                            <p><i class="fa-solid fa-user text-gray-400 w-5"></i> <b>العميل:</b> ${user.full_name} (${user.account_number})</p>
+                            <p><i class="fa-solid fa-money-bill text-green-500 w-5"></i> <b>المبلغ:</b> <span class="font-bold text-lg text-green-600" dir="ltr">${parseFloat(tx.amount).toLocaleString()} SDG</span></p>
+                            <p><i class="fa-solid fa-credit-card text-gray-400 w-5"></i> <b>الوسيلة:</b> ${tx.method}</p>
+                            <p><i class="fa-solid fa-user-tag text-gray-400 w-5"></i> <b>المحوّل:</b> ${tx.sender_name || '—'}</p>
+                            <p><i class="fa-solid fa-clock text-gray-400 w-5"></i> <b>الوقت:</b> ${dateStr}</p>
+                            
+                            ${tx.receipt_url ? `
+                                <a href="${tx.receipt_url}" target="_blank" class="mt-2 block">
+                                    <img src="${tx.receipt_url}" class="w-full h-32 object-cover rounded-lg border hover:opacity-80 transition">
+                                    <span class="text-xs text-blue-500 block text-center mt-1">اضغط لفتح الإشعار بالحجم الكامل</span>
+                                </a>
+                            ` : ''}
+                        </div>
+                        <div class="p-3 bg-gray-50 border-t flex gap-2">
+                            <button class="btnApprove flex-1 bg-green-600 hover:bg-green-700 text-white text-center py-2 rounded-lg font-bold transition" data-id="${txId}" data-uid="${tx.user_id}" data-amount="${tx.amount}">
+                                <i class="fa-solid fa-check ml-1"></i> موافقة
+                            </button>
+                            <button class="btnReject flex-1 bg-red-600 hover:bg-red-700 text-white text-center py-2 rounded-lg font-bold transition" data-id="${txId}">
+                                <i class="fa-solid fa-times ml-1"></i> رفض
+                            </button>
+                        </div>
+                    `;
+                    requestsContainer.appendChild(card);
+                });
+
+                // ربط أزرار الموافقة والرفض
+                document.querySelectorAll('.btnApprove').forEach(btn => {
+                    btn.addEventListener('click', async function() {
+                        if (!confirm('هل أنت متأكد من الموافقة وإضافة المبلغ لرصيد العميل؟')) return;
+                        this.disabled = true;
+                        this.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+                        
+                        const txId = this.dataset.id;
+                        const userId = this.dataset.uid;
+                        const amount = parseFloat(this.dataset.amount);
+
+                        try {
+                            // 1. تحديث حالة المعاملة
+                            await updateDoc(doc(db, "transactions", txId), {
+                                status: 'approved',
+                                approved_at: new Date()
+                            });
+
+                            // 2. إضافة الرصيد للمستخدم
+                            await updateDoc(doc(db, "users", userId), {
+                                balance: increment(amount)
+                            });
+
+                            // إعادة تحميل الصفحة
+                            loadRequests();
+                        } catch (error) {
+                            console.error("Error approving:", error);
+                            alert('حدث خطأ أثناء الموافقة');
+                            this.disabled = false;
+                            this.innerHTML = '<i class="fa-solid fa-check ml-1"></i> موافقة';
+                        }
+                    });
+                });
+
+                document.querySelectorAll('.btnReject').forEach(btn => {
+                    btn.addEventListener('click', async function() {
+                        if (!confirm('هل تريد رفض هذا الطلب؟')) return;
+                        this.disabled = true;
+                        this.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+                        
+                        const txId = this.dataset.id;
+
+                        try {
+                            await updateDoc(doc(db, "transactions", txId), {
+                                status: 'rejected'
+                            });
+                            loadRequests();
+                        } catch (error) {
+                            console.error("Error rejecting:", error);
+                            alert('حدث خطأ أثناء الرفض');
+                            this.disabled = false;
+                            this.innerHTML = '<i class="fa-solid fa-times ml-1"></i> رفض';
+                        }
+                    });
+                });
+
+            } catch (error) {
+                console.error("Error loading requests:", error);
+                requestsContainer.innerHTML = '<p class="text-center col-span-2 text-red-500">حدث خطأ أثناء تحميل الطلبات</p>';
+            }
+        }
     </script>
 </body>
 </html>
