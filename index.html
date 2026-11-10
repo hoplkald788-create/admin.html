@@ -3,218 +3,148 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لوحة تحكم المدير - الطلبات المعلقة</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>body{font-family:'Cairo',sans-serif;background:#f3f4f6}</style>
+    <title>لوحة تحكم - شحن الرصيد</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .dashboard-card { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 100%; max-width: 400px; }
+        h2 { text-align: center; color: #333; margin-bottom: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; color: #555; font-weight: bold; }
+        input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; font-size: 16px; }
+        button { width: 100%; padding: 12px; background-color: #28a745; color: white; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; transition: background 0.3s; }
+        button:hover { background-color: #218838; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+        #message { text-align: center; margin-top: 15px; font-weight: bold; }
+        .success { color: #28a745; }
+        .error { color: #dc3545; }
+        .loading { color: #007bff; }
+    </style>
 </head>
-<body class="pb-10">
+<body>
 
-    <div id="loginSection" class="fixed inset-0 bg-gray-100 flex justify-center items-center z-50">
-        <div class="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm">
-            <h2 class="text-2xl font-bold text-center mb-6 text-red-700">لوحة تحكم المدير</h2>
-            <div id="loginError" class="hidden bg-red-100 text-red-700 p-2 rounded mb-4 text-center text-sm"></div>
-            <div class="flex flex-col gap-4">
-                <input type="password" id="adminPass" placeholder="كلمة مرور الإدارة" class="border p-3 rounded-xl outline-none focus:border-red-500">
-                <button id="loginBtn" class="bg-red-700 text-white py-3 rounded-xl font-bold">دخول</button>
-            </div>
+    <div class="dashboard-card">
+        <h2>شحن رصيد الحساب</h2>
+        
+        <div class="form-group">
+            <label for="accountNumber">رقم الحساب:</label>
+            <input type="text" id="accountNumber" placeholder="مثال: 0758525">
         </div>
+
+        <div class="form-group">
+            <label for="amount">المبلغ المراد شحنه:</label>
+            <input type="number" id="amount" placeholder="أدخل المبلغ هنا">
+        </div>
+
+        <button id="rechargeBtn" onclick="rechargeBalance()">شحن الرصيد</button>
+        
+        <div id="message"></div>
     </div>
 
-    <div id="adminPanel" class="hidden">
-        <div class="bg-red-800 text-white p-4 shadow-md flex justify-between items-center">
-            <h1 class="text-lg font-bold"><i class="fa-solid fa-shield-halved ml-2"></i> لوحة الإدارة - طلبات الشحن</h1>
-            <button id="logoutAdmin" class="bg-red-900 hover:bg-red-950 px-4 py-1.5 rounded-lg text-sm transition">تسجيل الخروج</button>
-        </div>
+    <!-- استدعاء مكتبة Firebase (النسخة 8) -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
-        <div class="max-w-4xl mx-auto p-4 mt-4">
-            <h2 class="text-xl font-bold mb-4 text-gray-800 border-r-4 border-red-700 pr-3" id="requestsTitle">الطلبات المعلقة (0)</h2>
-            <div id="requestsContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-        </div>
-    </div>
-
-    <!-- Firebase SDK -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, collection, query, where, getDocs, doc, updateDoc, increment, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-
+    <script>
+        // ==========================================
+        // 1. إعدادات Firebase (ضع بيانات مشروعك هنا)
+        // ==========================================
         const firebaseConfig = {
-            apiKey: "AIzaSyCdV3qgXHHxz4e8mf1c-2TrZujXqY-LuQc",
-            authDomain: "black-9deb2.firebaseapp.com",
-            projectId: "black-9deb2",
-            storageBucket: "black-9deb2.firebasestorage.app",
-            messagingSenderId: "725901940218",
-            appId: "1:725901940218:web:bc10585da68be02dc14043"
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
         };
 
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
+        // تهيئة Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.database();
 
-        const ADMIN_PASSWORD = "Admin@2026"; // غير كلمة المرور هنا
-        let isLoggedIn = false;
+        // ==========================================
+        // 2. دالة الشحن الرئيسية
+        // ==========================================
+        async function rechargeBalance() {
+            const accountNumber = document.getElementById('accountNumber').value.trim();
+            const amount = parseFloat(document.getElementById('amount').value);
+            const btn = document.getElementById('rechargeBtn');
+            const messageDiv = document.getElementById('message');
 
-        const loginSection = document.getElementById('loginSection');
-        const adminPanel = document.getElementById('adminPanel');
-        const requestsContainer = document.getElementById('requestsContainer');
-        const requestsTitle = document.getElementById('requestsTitle');
+            // تصفير الرسائل السابقة
+            messageDiv.innerHTML = '';
+            messageDiv.className = '';
 
-        document.getElementById('loginBtn').addEventListener('click', () => {
-            const pass = document.getElementById('adminPass').value;
-            if (pass === ADMIN_PASSWORD) {
-                isLoggedIn = true;
-                loginSection.classList.add('hidden');
-                adminPanel.classList.remove('hidden');
-                loadRequests();
-            } else {
-                const err = document.getElementById('loginError');
-                err.textContent = '❌ كلمة المرور غير صحيحة';
-                err.classList.remove('hidden');
+            // التحقق من المدخلات
+            if (!accountNumber) {
+                showMessage('الرجاء إدخال رقم الحساب.', 'error');
+                return;
             }
-        });
+            if (isNaN(amount) || amount <= 0) {
+                showMessage('الرجاء إدخال مبلغ صحيح أكبر من الصفر.', 'error');
+                return;
+            }
 
-        document.getElementById('logoutAdmin').addEventListener('click', () => {
-            isLoggedIn = false;
-            adminPanel.classList.add('hidden');
-            loginSection.classList.remove('hidden');
-            document.getElementById('adminPass').value = '';
-        });
+            // تعطيل الزر لمنع الضغط المتكرر
+            btn.disabled = true;
+            showMessage('جاري البحث عن الحساب...', 'loading');
 
-        async function loadRequests() {
-            if (!isLoggedIn) return;
-            requestsContainer.innerHTML = '<p class="text-center col-span-2 text-gray-500">جاري التحميل...</p>';
-            
             try {
-                const txRef = collection(db, "transactions");
-                const q = query(txRef, where("status", "==", "pending"));
-                const snapshot = await getDocs(q);
-                
-                requestsTitle.textContent = `الطلبات المعلقة (${snapshot.size})`;
-                requestsContainer.innerHTML = '';
+                // البحث في قاعدة البيانات عن رقم الحساب
+                // ملاحظة: نفترض أن البيانات مخزنة مباشرة في الجذر. 
+                // إذا كانت داخل مجلد اسمه users، غير السطر إلى: db.ref('users')
+                const snapshot = await db.ref('/').orderByChild('رقم الحساب').equalTo(accountNumber).once('value');
 
-                if (snapshot.empty) {
-                    requestsContainer.innerHTML = `
-                        <div class="col-span-2 bg-white p-10 rounded-xl text-center text-gray-500 shadow-sm border">
-                            <i class="fa-solid fa-check-circle text-5xl text-green-500 mb-4"></i>
-                            <h3 class="text-xl font-bold">لا توجد طلبات معلقة حالياً</h3>
-                            <p class="text-sm mt-2">كل الطلبات تمت معالجتها.</p>
-                        </div>
-                    `;
+                if (!snapshot.exists()) {
+                    showMessage('عذراً، لم يتم العثور على حساب بهذا الرقم.', 'error');
+                    btn.disabled = false;
                     return;
                 }
 
-                // جلب بيانات المستخدمين بشكل منفصل (لأن Firebase لا يدعم JOIN)
-                const userIds = [...new Set(snapshot.docs.map(d => d.data().user_id))];
-                const usersMap = {};
-                for (const uid of userIds) {
-                    const userDoc = await getDoc(doc(db, "users", uid));
-                    if (userDoc.exists()) usersMap[uid] = userDoc.data();
-                }
+                // استخراج بيانات المستخدم
+                let userId = null;
+                let currentBalance = 0;
 
-                snapshot.forEach(docSnap => {
-                    const tx = docSnap.data();
-                    const txId = docSnap.id;
-                    const user = usersMap[tx.user_id] || { full_name: 'غير معروف', account_number: '---' };
-                    
-                    let dateStr = '';
-                    if (tx.created_at) {
-                        const d = tx.created_at.toDate();
-                        dateStr = `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()} - ${d.getHours()}:${d.getMinutes()}`;
-                    }
-
-                    const card = document.createElement('div');
-                    card.className = "bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden";
-                    card.innerHTML = `
-                        <div class="bg-gray-50 p-3 border-b flex justify-between items-center">
-                            <span class="text-sm font-bold text-gray-700">طلب #${txId.slice(0,6)}</span>
-                            <span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">قيد الانتظار</span>
-                        </div>
-                        <div class="p-4 flex flex-col gap-2 text-sm text-gray-700">
-                            <p><i class="fa-solid fa-user text-gray-400 w-5"></i> <b>العميل:</b> ${user.full_name} (${user.account_number})</p>
-                            <p><i class="fa-solid fa-money-bill text-green-500 w-5"></i> <b>المبلغ:</b> <span class="font-bold text-lg text-green-600" dir="ltr">${parseFloat(tx.amount).toLocaleString()} SDG</span></p>
-                            <p><i class="fa-solid fa-credit-card text-gray-400 w-5"></i> <b>الوسيلة:</b> ${tx.method}</p>
-                            <p><i class="fa-solid fa-user-tag text-gray-400 w-5"></i> <b>المحوّل:</b> ${tx.sender_name || '—'}</p>
-                            <p><i class="fa-solid fa-clock text-gray-400 w-5"></i> <b>الوقت:</b> ${dateStr}</p>
-                            
-                            ${tx.receipt_url ? `
-                                <a href="${tx.receipt_url}" target="_blank" class="mt-2 block">
-                                    <img src="${tx.receipt_url}" class="w-full h-32 object-cover rounded-lg border hover:opacity-80 transition">
-                                    <span class="text-xs text-blue-500 block text-center mt-1">اضغط لفتح الإشعار بالحجم الكامل</span>
-                                </a>
-                            ` : ''}
-                        </div>
-                        <div class="p-3 bg-gray-50 border-t flex gap-2">
-                            <button class="btnApprove flex-1 bg-green-600 hover:bg-green-700 text-white text-center py-2 rounded-lg font-bold transition" data-id="${txId}" data-uid="${tx.user_id}" data-amount="${tx.amount}">
-                                <i class="fa-solid fa-check ml-1"></i> موافقة
-                            </button>
-                            <button class="btnReject flex-1 bg-red-600 hover:bg-red-700 text-white text-center py-2 rounded-lg font-bold transition" data-id="${txId}">
-                                <i class="fa-solid fa-times ml-1"></i> رفض
-                            </button>
-                        </div>
-                    `;
-                    requestsContainer.appendChild(card);
+                snapshot.forEach((childSnapshot) => {
+                    userId = childSnapshot.key; // المعرف الفريد (مثل rFFGhucc...)
+                    const userData = childSnapshot.val();
+                    // قراءة الرصيد الحالي، إذا لم يكن موجوداً نعتبره 0
+                    currentBalance = parseFloat(userData['توازن']) || 0; 
                 });
 
-                // ربط أزرار الموافقة والرفض
-                document.querySelectorAll('.btnApprove').forEach(btn => {
-                    btn.addEventListener('click', async function() {
-                        if (!confirm('هل أنت متأكد من الموافقة وإضافة المبلغ لرصيد العميل؟')) return;
-                        this.disabled = true;
-                        this.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
-                        
-                        const txId = this.dataset.id;
-                        const userId = this.dataset.uid;
-                        const amount = parseFloat(this.dataset.amount);
+                // حساب الرصيد الجديد
+                const newBalance = currentBalance + amount;
 
-                        try {
-                            // 1. تحديث حالة المعاملة
-                            await updateDoc(doc(db, "transactions", txId), {
-                                status: 'approved',
-                                approved_at: new Date()
-                            });
+                showMessage('جاري تحديث الرصيد في السيرفر...', 'loading');
 
-                            // 2. إضافة الرصيد للمستخدم
-                            await updateDoc(doc(db, "users", userId), {
-                                balance: increment(amount)
-                            });
-
-                            // إعادة تحميل الصفحة
-                            loadRequests();
-                        } catch (error) {
-                            console.error("Error approving:", error);
-                            alert('حدث خطأ أثناء الموافقة');
-                            this.disabled = false;
-                            this.innerHTML = '<i class="fa-solid fa-check ml-1"></i> موافقة';
-                        }
-                    });
+                // تحديث حقل "توازن" فقط في قاعدة البيانات
+                await db.ref('/' + userId).update({
+                    'توازن': newBalance
                 });
 
-                document.querySelectorAll('.btnReject').forEach(btn => {
-                    btn.addEventListener('click', async function() {
-                        if (!confirm('هل تريد رفض هذا الطلب؟')) return;
-                        this.disabled = true;
-                        this.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
-                        
-                        const txId = this.dataset.id;
-
-                        try {
-                            await updateDoc(doc(db, "transactions", txId), {
-                                status: 'rejected'
-                            });
-                            loadRequests();
-                        } catch (error) {
-                            console.error("Error rejecting:", error);
-                            alert('حدث خطأ أثناء الرفض');
-                            this.disabled = false;
-                            this.innerHTML = '<i class="fa-solid fa-times ml-1"></i> رفض';
-                        }
-                    });
-                });
+                // نجاح العملية
+                showMessage(`تم الشحن بنجاح! الرصيد الجديد للحساب (${accountNumber}) هو: ${newBalance}`, 'success');
+                
+                // تفريغ الحقول
+                document.getElementById('accountNumber').value = '';
+                document.getElementById('amount').value = '';
 
             } catch (error) {
-                console.error("Error loading requests:", error);
-                requestsContainer.innerHTML = '<p class="text-center col-span-2 text-red-500">حدث خطأ أثناء تحميل الطلبات</p>';
+                console.error("خطأ في Firebase:", error);
+                showMessage('حدث خطأ أثناء الاتصال بالسيرفر. تأكد من الصلاحيات (Rules).', 'error');
+            } finally {
+                // إعادة تفعيل الزر
+                btn.disabled = false;
             }
+        }
+
+        // دالة مساعدة لإظهار الرسائل
+        function showMessage(text, type) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.innerText = text;
+            messageDiv.className = type;
         }
     </script>
 </body>
