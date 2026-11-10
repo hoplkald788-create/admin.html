@@ -1,0 +1,167 @@
+here<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة تحكم أوكس - الأدمن</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Cairo', sans-serif; }
+        body { background: #0f0a1e; color: #fff; min-height: 100vh; padding: 20px; }
+        
+        /* تنسيق شاشة تسجيل الدخول */
+        .login-container { max-width: 400px; margin: 100px auto; background: #1e1638; padding: 40px 30px; border-radius: 20px; border: 1px solid #6d28d9; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .login-container h1 { color: #f59e0b; margin-bottom: 10px; font-size: 26px; }
+        .login-container p { color: #a89fc4; font-size: 14px; margin-bottom: 25px; }
+        .login-container input { width: 100%; padding: 13px; margin-bottom: 15px; border-radius: 8px; border: 1px solid #444; background: #0f0a1e; color: #fff; font-family: inherit; font-size: 15px; }
+        .login-container input:focus { outline: none; border-color: #6d28d9; }
+        .login-container button { width: 100%; padding: 13px; background: linear-gradient(135deg, #6d28d9, #8b5cf6); color: #fff; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; font-family: inherit; transition: 0.3s; }
+        .login-container button:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(109, 40, 217, 0.4); }
+        .error-text { color: #ef4444; font-size: 14px; margin-bottom: 10px; display: none; }
+
+        /* تنسيق لوحة التحكم */
+        .dashboard-container { max-width: 1000px; margin: 0 auto; display: none; }
+        .header { background: #1e1638; padding: 20px; border-radius: 15px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; border: 1px solid #6d28d9; }
+        .header h1 { color: #f59e0b; font-size: 22px; }
+        .btn-logout { padding: 10px 20px; background: #ef4444; color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-family: inherit; transition: 0.3s; }
+        .btn-logout:hover { background: #dc2626; }
+
+        /* الإحصائيات */
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 25px; }
+        .stat-card { background: #1e1638; padding: 25px; border-radius: 15px; border: 1px solid rgba(139, 92, 246, 0.3); text-align: center; }
+        .stat-card h3 { color: #a89fc4; font-size: 15px; font-weight: normal; margin-bottom: 10px; }
+        .stat-card .number { font-size: 32px; font-weight: 900; color: #10b981; }
+
+        /* الجدول */
+        .table-card { background: #1e1638; padding: 25px; border-radius: 15px; border: 1px solid #6d28d9; }
+        .table-card h2 { color: #f59e0b; margin-bottom: 20px; font-size: 20px; }
+        table { width: 100%; border-collapse: collapse; text-align: right; }
+        th, td { padding: 15px; border-bottom: 1px solid #333; }
+        th { color: #a89fc4; font-weight: normal; }
+        td { color: #fff; font-size: 14px; }
+        .badge { background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 4px 10px; border-radius: 5px; font-size: 12px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <!-- 1. شاشة تسجيل الدخول -->
+    <div class="login-container" id="login-view">
+        <h1>👑 لوحة تحكم الأدمن</h1>
+        <p>سجل دخولك للوصول إلى إدارة المتجر</p>
+        
+        <div id="login-error" class="error-text"></div>
+        
+        <input type="email" id="admin-email" placeholder="البريد الإلكتروني">
+        <input type="password" id="admin-pass" placeholder="كلمة المرور">
+        <button onclick="loginAdmin()">تسجيل الدخول</button>
+    </div>
+
+    <!-- 2. شاشة لوحة التحكم (تظهر بعد الدخول) -->
+    <div class="dashboard-container" id="dashboard-view">
+        <div class="header">
+            <h1>مرحباً بك، المدير 👋</h1>
+            <button class="btn-logout" onclick="logoutAdmin()">تسجيل خروج</button>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>إجمالي المستخدمين</h3>
+                <div class="number">1,248</div>
+            </div>
+            <div class="stat-card">
+                <h3>طلبات اليوم</h3>
+                <div class="number">15</div>
+            </div>
+            <div class="stat-card">
+                <h3>إجمالي الأرباح (ر.س)</h3>
+                <div class="number">3,500</div>
+            </div>
+        </div>
+
+        <div class="table-card">
+            <h2>أحدث العملاء المسجلين</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>الاسم / البريد</th>
+                        <th>الحالة</th>
+                        <th>تاريخ الانضمام</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>مستخدم تجريبي 1</td>
+                        <td><span class="badge">مفعل ✅</span></td>
+                        <td>اليوم 10:30 ص</td>
+                    </tr>
+                    <tr>
+                        <td>مستخدم تجريبي 2</td>
+                        <td><span class="badge">مفعل ✅</span></td>
+                        <td>أمس 08:15 م</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ربط مكتبات Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCdV3qgXHHxz4e8mf1c-2TrZujXqY-LuQc",
+            authDomain: "black-9deb2.firebaseapp.com",
+            projectId: "black-9deb2",
+            storageBucket: "black-9deb2.firebasestorage.app",
+            messagingSenderId: "725901940218",
+            appId: "1:725901940218:web:bc10585da68be02dc14043"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+
+        const loginView = document.getElementById('login-view');
+        const dashboardView = document.getElementById('dashboard-view');
+        const errorDiv = document.getElementById('login-error');
+
+        // دالة تسجيل الدخول
+        window.loginAdmin = function() {
+            const email = document.getElementById('admin-email').value;
+            const pass = document.getElementById('admin-pass').value;
+            
+            errorDiv.style.display = 'none';
+            const btn = event.target;
+            btn.textContent = 'جاري الدخول...';
+
+            signInWithEmailAndPassword(auth, email, pass)
+                .then(() => {
+                    // سيتم التبديل تلقائياً عن طريق onAuthStateChanged
+                })
+                .catch((error) => {
+                    btn.textContent = 'تسجيل الدخول';
+                    errorDiv.textContent = "البريد الإلكتروني أو كلمة المرور غير صحيحة.";
+                    errorDiv.style.display = 'block';
+                });
+        }
+
+        // دالة تسجيل الخروج
+        window.logoutAdmin = function() {
+            signOut(auth);
+        }
+
+        // مراقبة حالة الدخول (هنا السحر كله)
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                // إذا سجل دخول: أخفي شاشة الدخول وأظهر لوحة التحكم
+                loginView.style.display = 'none';
+                dashboardView.style.display = 'block';
+            } else {
+                // إذا خرج: أظهر شاشة الدخول وأخفي اللوحة
+                loginView.style.display = 'block';
+                dashboardView.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
