@@ -1,9 +1,9 @@
-here<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لوحة تحكم أوكس - الأدمن</title>
+    <title>لوحة تحكم الأدمن - أوكس</title>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Cairo', sans-serif; }
@@ -121,6 +121,9 @@ here<!DOCTYPE html>
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
 
+        // ⚠️ الإيميل الخاص بك كأدمن (تم تعديله)
+        const ADMIN_EMAIL = "almtm9993@gmail.com"; 
+
         const loginView = document.getElementById('login-view');
         const dashboardView = document.getElementById('dashboard-view');
         const errorDiv = document.getElementById('login-error');
@@ -135,8 +138,14 @@ here<!DOCTYPE html>
             btn.textContent = 'جاري الدخول...';
 
             signInWithEmailAndPassword(auth, email, pass)
-                .then(() => {
-                    // سيتم التبديل تلقائياً عن طريق onAuthStateChanged
+                .then((userCredential) => {
+                    // التحقق: هل هذا الإيميل هو إيميل الأدمن؟
+                    if (userCredential.user.email !== ADMIN_EMAIL) {
+                        signOut(auth); // اطرد أي حد تاني
+                        btn.textContent = 'تسجيل الدخول';
+                        errorDiv.textContent = "عذراً، هذا الحساب ليس لديه صلاحيات الإدارة.";
+                        errorDiv.style.display = 'block';
+                    }
                 })
                 .catch((error) => {
                     btn.textContent = 'تسجيل الدخول';
@@ -152,12 +161,12 @@ here<!DOCTYPE html>
 
         // مراقبة حالة الدخول (هنا السحر كله)
         onAuthStateChanged(auth, (user) => {
-            if (user) {
-                // إذا سجل دخول: أخفي شاشة الدخول وأظهر لوحة التحكم
+            if (user && user.email === ADMIN_EMAIL) {
+                // إذا سجل دخول بنجاح كأدمن: أخفي شاشة الدخول وأظهر لوحة التحكم
                 loginView.style.display = 'none';
                 dashboardView.style.display = 'block';
             } else {
-                // إذا خرج: أظهر شاشة الدخول وأخفي اللوحة
+                // إذا خرج أو ليس أدمن: أظهر شاشة الدخول
                 loginView.style.display = 'block';
                 dashboardView.style.display = 'none';
             }
