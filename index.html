@@ -1,605 +1,282 @@
-<?php
-session_start();
+const express = require('express');
+const session = require('express-session');
+const multer = require('multer');
+const admin = require('firebase-admin');
+const path = require('path');
 
-$ADMIN_PASSWORD = "Admin@2026";
+const app = express();
+const PORT = process.env.PORT || 3000;
+const ADMIN_PASSWORD = "Admin@2026";
 
-/* ============================================================
-   إعدادات Firebase
-   ============================================================ */
-define('FIREBASE_PROJECT_ID', 'black-9deb2');
-define('FIREBASE_API_KEY',    'AIzaSyCdV3qgXHHxz4e8mf1c-2TrZujXqY-LuQc');
-
-/* ============================================================
-   دوال التعامل مع Firestore REST API
-   ============================================================ */
-
-/**
- * تحويل قيمة PHP إلى صيغة Firestore Value
- */
-function toFirestoreValue($value) {
-    if (is_null($value))      return ['nullValue' => null];
-    if (is_bool($value))      return ['booleanValue' => $value];
-    if (is_int($value))       return ['integerValue' => (string)$value];
-    if (is_float($value))     return ['doubleValue' => $value];
-    if (is_numeric($value) && !is_string($value)) return ['doubleValue' => (float)$value];
-    return ['stringValue' => (string)$value];
+// ==========================================
+// 1. إعداد Firebase
+// ==========================================
+try {
+    // يقرأ ملف المفاتيح من متغير البيئة أو من ملف محلي
+    const serviceAccount = process.env.FIREBASE_KEY 
+        ? JSON.parse(process.env.FIREBASE_KEY) 
+        : require('./serviceAccount.json');
+        
+    admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        projectId: "black-9deb2"
+    });
+    console.log("✅ Firebase Connected");
+} catch (error) {
+    console.error("❌ Firebase Error: تأكد من إعداد serviceAccount.json أو متغير البيئة");
 }
+const db = admin.firestore();
 
-/**
- * تحويل مصفوفة PHP إلى Firestore fields
- */
-function toFirestoreFields(array $data) {
-    $fields = [];
-    foreach ($data as $k => $v) {
-        $fields[$k] = toFirestoreValue($v);
-    }
-    return $fields;
-}
+// ==========================================
+// 2. إعدادات السيرفر
+// ==========================================
+app.use(express.urlencoded({ extended: true }));
+app.use(session({
+    secret: 'super-secret-key',
+    resave: false,
+    saveUninitialized: true,
+    cookie: { secure: false }
+}));
+const upload = multer({ storage: multer.memoryStorage() });
 
-/**
- * تحويل قيمة Firestore إلى قيمة PHP
- */
-function fromFirestoreValue($v) {
-    if (!is_array($v)) return null;
-    if (isset($v['stringValue']))  return $v['stringValue'];
-    if (isset($v['integerValue'])) return (int)$v['integerValue'];
-    if (isset($v['doubleValue']))  return (float)$v['doubleValue'];
-    if (isset($v['booleanValue'])) return (bool)$v['booleanValue'];
-    if (isset($v['nullValue']))    return null;
-    if (isset($v['timestampValue'])) return $v['timestampValue'];
-    if (isset($v['arrayValue']))   return $v['arrayValue']['values'] ?? [];
-    if (isset($v['mapValue']))     return fromFirestoreFields($v['mapValue']['fields'] ?? []);
-    return null;
-}
-
-function fromFirestoreFields($fields) {
-    $out = [];
-    if (!is_array($fields)) return $out;
-    foreach ($fields as $k => $v) {
-        $out[$k] = fromFirestoreValue($v);
-    }
-    return $out;
-}
-
-/**
- * استدعاء Firestore REST API
- */
-function firestoreRequest($method, $path, $body = null) {
-    $url = "https://firestore.googleapis.com/v1/projects/" . FIREBASE_PROJECT_ID . "/databases/(default)/documents/" . ltrim($path, '/');
-    $url .= (strpos($url, '?') === false ? '?' : '&') . 'key=' . FIREBASE_API_KEY;
-
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-
-    if ($body !== null) {
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-    }
-
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlErr  = curl_error($ch);
-    curl_close($ch);
-
-    if ($curlErr) {
-        return ['error' => $curlErr, 'code' => 0];
-    }
-    $decoded = json_decode($response, true);
-    if ($httpCode >= 400) {
-        return ['error' => $decoded['error']['message'] ?? 'HTTP ' . $httpCode, 'code' => $httpCode];
-    }
-    return ['data' => $decoded, 'code' => $httpCode];
-}
-
-/**
- * جلب كل المستندات من collection (مع pagination)
- */
-function fsGetCollection($collection, $pageSize = 300) {
-    $docs = [];
-    $nextToken = null;
-    do {
-        $path = $collection . '?pageSize=' . $pageSize;
-        if ($nextToken) $path .= '&pageToken=' . urlencode($nextToken);
-        $res = firestoreRequest('GET', $path);
-        if (isset($res['error'])) break;
-        $data = $res['data'] ?? [];
-        foreach (($data['documents'] ?? []) as $doc) {
-            $id = basename($doc['name']);
-            $row = fromFirestoreFields($doc['fields'] ?? []);
-            $row['id'] = $id;
-            $docs[] = $row;
-        }
-        $nextToken = $data['nextPageToken'] ?? null;
-    } while ($nextToken);
-    return $docs;
-}
-
-/**
- * جلب مستند واحد
- */
-function fsGetDoc($collection, $id) {
-    $res = firestoreRequest('GET', $collection . '/' . $id);
-    if (isset($res['error'])) return null;
-    $doc = $res['data'] ?? [];
-    if (empty($doc['fields'])) return null;
-    $row = fromFirestoreFields($doc['fields']);
-    $row['id'] = $id;
-    return $row;
-}
-
-/**
- * تحديث مستند جزئياً
- */
-function fsPatchDoc($collection, $id, array $data) {
-    $fields = toFirestoreFields($data);
-    $mask = [];
-    foreach (array_keys($data) as $k) $mask[] = 'updateMask.fieldPaths=' . urlencode($k);
-    $path = $collection . '/' . $id . '?' . implode('&', $mask);
-    return firestoreRequest('PATCH', $path, ['fields' => $fields]);
-}
-
-/**
- * إضافة مستند جديد
- */
-function fsAddDoc($collection, array $data) {
-    $path = $collection;
-    return firestoreRequest('POST', $path, ['fields' => toFirestoreFields($data)]);
-}
-
-/* ============================================================
-   تسجيل الخروج
-   ============================================================ */
-if (isset($_GET['logout'])) {
-    unset($_SESSION['admin_logged_in']);
-    header("Location: " . strtok($_SERVER["REQUEST_URI"], '?')); exit;
-}
-
-/* ============================================================
-   تسجيل الدخول
-   ============================================================ */
-$login_error = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['admin_login'])) {
-    if ($_POST['password'] === $ADMIN_PASSWORD) {
-        $_SESSION['admin_logged_in'] = true;
-        header("Location: " . strtok($_SERVER["REQUEST_URI"], '?')); exit;
-    } else {
-        $login_error = '❌ كلمة المرور غير صحيحة';
-    }
-}
-
-if (!isset($_SESSION['admin_logged_in'])) {
-    ?>
-    <!DOCTYPE html>
-    <html lang="ar" dir="rtl">
-    <head>
-        <meta charset="UTF-8"><title>دخول الإدارة</title>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-        <style>body{font-family:'Tajawal',sans-serif}</style>
-    </head>
-    <body class="bg-gray-100 flex justify-center items-center min-h-screen">
-        <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm border-t-4 border-red-700">
-            <div class="text-center mb-6">
-                <div class="w-20 h-20 bg-red-700 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <i class="fa-solid fa-shield-halved text-white text-3xl"></i>
-                </div>
-                <h2 class="text-2xl font-bold text-gray-800">لوحة تحكم المدير</h2>
-                <p class="text-sm text-gray-500 mt-2">الدخول الآمن للإدارة</p>
-            </div>
-            <?php if ($login_error): ?><div class="bg-red-100 text-red-700 p-3 rounded-lg mb-4 text-center text-sm font-bold"><?php echo $login_error; ?></div><?php endif; ?>
-            <form method="POST" class="flex flex-col gap-4">
-                <input type="password" name="password" placeholder="كلمة مرور الإدارة" required class="border p-3 rounded-xl outline-none focus:border-red-500 text-center" autofocus>
-                <button type="submit" name="admin_login" class="bg-red-700 text-white py-3 rounded-xl font-bold hover:bg-red-800 transition">دخول</button>
-            </form>
-        </div>
-    </body>
-    </html>
-    <?php
-    exit;
-}
-
-/* ============================================================
-   معالجة الموافقة / الرفض
-   ============================================================ */
-if (isset($_GET['action']) && isset($_GET['id'])) {
-    $id     = $_GET['id'];
-    $action = $_GET['action'];
-
-    $tx = fsGetDoc('transactions', $id);
-
-    if ($tx && ($tx['status'] ?? '') === 'pending') {
-        if ($action === 'approve') {
-            $bankRef   = trim($_GET['bank_ref']   ?? '');
-            $benefName = trim($_GET['benef_name'] ?? '');
-            $benefAcc  = trim($_GET['benef_acc']  ?? '');
-
-            // تحديث رصيد المستخدم
-            $userId = $tx['user_id'] ?? null;
-            if ($userId) {
-                $user = fsGetDoc('users', $userId);
-                if ($user) {
-                    $currentBalance = (float)($user['balance'] ?? 0);
-                    $amount         = (float)($tx['amount'] ?? 0);
-
-                    if ($tx['type'] === 'deposit') {
-                        $newBalance = $currentBalance + $amount;
-                    } elseif ($tx['type'] === 'withdrawal') {
-                        $newBalance = $currentBalance - $amount;
-                    } else {
-                        $newBalance = $currentBalance;
-                    }
-
-                    fsPatchDoc('users', $userId, [
-                        'balance'         => $newBalance,
-                        'account_balance' => $newBalance,
-                    ]);
-                }
-            }
-
-            // تحديث المعاملة
-            $update = [
-                'status'      => 'approved',
-                'approved_at' => date('Y-m-d\TH:i:s\Z'),
-            ];
-            if ($bankRef)   $update['bank_ref']            = $bankRef;
-            if ($benefName) $update['beneficiary_name']    = $benefName;
-            if ($benefAcc)  $update['beneficiary_account'] = $benefAcc;
-
-            fsPatchDoc('transactions', $id, $update);
-
-        } elseif ($action === 'reject') {
-            fsPatchDoc('transactions', $id, ['status' => 'rejected']);
-        }
-    }
-    header("Location: " . strtok($_SERVER["REQUEST_URI"], '?') . "?msg=done"); exit;
-}
-
-/* ============================================================
-   جلب البيانات
-   ============================================================ */
-$filter = $_GET['type'] ?? 'all';
-
-// جلب كل المعاملات + المستخدمين
-$allTx   = fsGetCollection('transactions');
-$allUsers = fsGetCollection('users');
-
-// فهرس المستخدمين حسب id
-$usersIndex = [];
-foreach ($allUsers as $u) {
-    $usersIndex[$u['id']] = $u;
-}
-
-// دمج بيانات المستخدم مع المعاملة + تصفية
-$transactions = [];
-foreach ($allTx as $t) {
-    if ($filter === 'deposit'    && ($t['type'] ?? '') !== 'deposit')    continue;
-    if ($filter === 'withdrawal' && ($t['type'] ?? '') !== 'withdrawal') continue;
-
-    $u = $usersIndex[$t['user_id'] ?? ''] ?? [];
-    $t['username']       = $u['username']       ?? '—';
-    $t['full_name']      = $u['full_name']      ?? '—';
-    $t['account_number'] = $u['account_number'] ?? '—';
-    $t['phone']          = $u['phone']          ?? '';
-    $transactions[] = $t;
-}
-
-// ترتيب حسب created_at تنازلياً
-usort($transactions, function($a, $b) {
-    $da = strtotime($a['created_at'] ?? '1970-01-01');
-    $db = strtotime($b['created_at'] ?? '1970-01-01');
-    return $db <=> $da;
-});
-
-// إحصائيات
-$pendingCount = 0;
-$approvedDeposits = 0;
-$approvedWithdrawals = 0;
-foreach ($allTx as $t) {
-    $st = $t['status'] ?? '';
-    $tp = $t['type']   ?? '';
-    if ($st === 'pending')  $pendingCount++;
-    if ($st === 'approved' && $tp === 'deposit')    $approvedDeposits++;
-    if ($st === 'approved' && $tp === 'withdrawal') $approvedWithdrawals++;
-}
-$usersCount = count($allUsers);
-?>
+// ==========================================
+// 3. دالة التصميم (HTML)
+// ==========================================
+const layout = (content) => `
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لوحة تحكم المدير - بلدنا</title>
+    <title>بلدنا للمدفوعات</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        body { font-family: 'Cairo', sans-serif; background: #f3f4f6; }
-        .stat-card { background: linear-gradient(135deg, #fff 0%, #f9f9f9 100%); }
-        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 1000; align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(3px); }
-        .modal-overlay.active { display: flex; }
-        .modal-box { background: #fff; border-radius: 20px; max-width: 420px; width: 100%; max-height: 90vh; overflow-y: auto; animation: popIn .3s; }
-        @keyframes popIn { from { transform: scale(.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-    </style>
+    <style>body { font-family: 'Cairo', sans-serif; background: #f3f4f6; }</style>
 </head>
 <body>
-
-<!-- الهيدر -->
-<div class="bg-red-800 text-white p-4 shadow-md sticky top-0 z-50">
-    <div class="max-w-6xl mx-auto flex justify-between items-center">
-        <div class="flex items-center gap-3">
-            <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
-                <i class="fa-solid fa-shield-halved text-red-700 text-xl"></i>
+    <div class="bg-red-800 text-white p-4 shadow-md sticky top-0 z-50">
+        <div class="max-w-4xl mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center"><i class="fa-solid fa-building-columns text-red-700 text-xl"></i></div>
+                <div><h1 class="text-lg font-bold">بلدنا</h1><p class="text-xs opacity-75">للمدفوعات الرقمية</p></div>
             </div>
-            <div>
-                <h1 class="text-lg font-bold">لوحة تحكم المدير</h1>
-                <p class="text-xs opacity-75">بلدنا للمدفوعات الرقمية</p>
-            </div>
-        </div>
-        <a href="?logout=1" class="bg-red-900 hover:bg-red-950 px-4 py-2 rounded-lg text-sm transition">
-            <i class="fa-solid fa-right-from-bracket ml-1"></i> خروج
-        </a>
-    </div>
-</div>
-
-<!-- المحتوى -->
-<div class="max-w-6xl mx-auto p-4 mt-2">
-
-    <!-- الإحصائيات -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <div class="stat-card p-4 rounded-xl shadow border-t-4 border-yellow-500">
-            <div class="flex justify-between items-start">
-                <div>
-                    <p class="text-xs text-gray-500 font-bold">قيد الانتظار</p>
-                    <p class="text-2xl font-extrabold text-gray-800 mt-1"><?php echo $pendingCount; ?></p>
-                </div>
-                <div class="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
-                    <i class="fa-solid fa-clock text-yellow-600"></i>
-                </div>
-            </div>
-        </div>
-        <div class="stat-card p-4 rounded-xl shadow border-t-4 border-blue-500">
-            <div class="flex justify-between items-start">
-                <div>
-                    <p class="text-xs text-gray-500 font-bold">المستخدمون</p>
-                    <p class="text-2xl font-extrabold text-gray-800 mt-1"><?php echo $usersCount; ?></p>
-                </div>
-                <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                    <i class="fa-solid fa-users text-blue-600"></i>
-                </div>
-            </div>
-        </div>
-        <div class="stat-card p-4 rounded-xl shadow border-t-4 border-green-500">
-            <div class="flex justify-between items-start">
-                <div>
-                    <p class="text-xs text-gray-500 font-bold">إيداعات مكتملة</p>
-                    <p class="text-2xl font-extrabold text-gray-800 mt-1"><?php echo $approvedDeposits; ?></p>
-                </div>
-                <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                    <i class="fa-solid fa-arrow-down text-green-600"></i>
-                </div>
-            </div>
-        </div>
-        <div class="stat-card p-4 rounded-xl shadow border-t-4 border-red-500">
-            <div class="flex justify-between items-start">
-                <div>
-                    <p class="text-xs text-gray-500 font-bold">سحوبات مكتملة</p>
-                    <p class="text-2xl font-extrabold text-gray-800 mt-1"><?php echo $approvedWithdrawals; ?></p>
-                </div>
-                <div class="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-                    <i class="fa-solid fa-arrow-up text-red-600"></i>
-                </div>
-            </div>
+            <a href="/admin" class="bg-red-900 hover:bg-red-950 px-4 py-2 rounded-lg text-sm transition"><i class="fa-solid fa-shield-halved ml-1"></i> الإدارة</a>
         </div>
     </div>
-
-    <!-- عنوان الطلبات -->
-    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <h2 class="text-xl font-bold text-gray-800 border-r-4 border-red-700 pr-3">
-            <i class="fa-solid fa-list-check ml-2 text-red-700"></i>الطلبات
-        </h2>
+    <div class="max-w-4xl mx-auto p-4 mt-4">
+        ${content}
     </div>
-
-    <!-- تصفية -->
-    <div class="flex gap-2 mb-4 flex-wrap">
-        <a href="?type=all" class="px-4 py-2 rounded-lg font-bold text-sm transition <?php echo $filter === 'all' ? 'bg-red-700 text-white' : 'bg-white text-gray-700'; ?>">
-            <i class="fa-solid fa-layer-group ml-1"></i> الكل
-        </a>
-        <a href="?type=deposit" class="px-4 py-2 rounded-lg font-bold text-sm transition <?php echo $filter === 'deposit' ? 'bg-green-700 text-white' : 'bg-white text-gray-700'; ?>">
-            <i class="fa-solid fa-arrow-down ml-1"></i> إيداعات
-        </a>
-        <a href="?type=withdrawal" class="px-4 py-2 rounded-lg font-bold text-sm transition <?php echo $filter === 'withdrawal' ? 'bg-red-700 text-white' : 'bg-white text-gray-700'; ?>">
-            <i class="fa-solid fa-arrow-up ml-1"></i> سحوبات
-        </a>
-    </div>
-
-    <!-- الطلبات -->
-    <?php if (empty($transactions)): ?>
-        <div class="bg-white p-10 rounded-xl text-center text-gray-500 shadow-sm border">
-            <i class="fa-solid fa-inbox text-5xl text-gray-300 mb-4"></i>
-            <h3 class="text-xl font-bold">لا توجد طلبات حالياً</h3>
-        </div>
-    <?php else: ?>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <?php foreach ($transactions as $tx):
-                $statusConfig = [
-                    'pending'  => ['class'=>'bg-yellow-100 text-yellow-800', 'text'=>'قيد الانتظار'],
-                    'approved' => ['class'=>'bg-green-100 text-green-800',  'text'=>'مكتمل'],
-                    'rejected' => ['class'=>'bg-red-100 text-red-800',      'text'=>'مرفوض'],
-                ];
-                $status = $statusConfig[$tx['status'] ?? 'pending'] ?? $statusConfig['pending'];
-
-                $isDeposit   = ($tx['type'] ?? '') === 'deposit';
-                $typeLabel   = $isDeposit ? 'إيداع / شحن رصيد' : 'سحب أرباح';
-                $typeColor   = $isDeposit ? 'text-green-600' : 'text-red-600';
-                $typeIcon    = $isDeposit ? 'fa-arrow-down' : 'fa-arrow-up';
-                $typeBg      = $isDeposit ? 'bg-green-50' : 'bg-red-50';
-                $typeBorder  = $isDeposit ? 'border-green-500' : 'border-red-500';
-                $amountVal   = (float)($tx['amount'] ?? 0);
-                $createdDate = !empty($tx['created_at']) ? date('Y-m-d H:i', strtotime($tx['created_at'])) : '—';
-            ?>
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden border-t-4 <?php echo $typeBorder; ?>">
-                    <div class="bg-gray-50 p-3 border-b flex justify-between items-center">
-                        <div class="flex items-center gap-2">
-                            <div class="w-8 h-8 <?php echo $typeBg; ?> rounded-lg flex items-center justify-center">
-                                <i class="fa-solid <?php echo $typeIcon; ?> <?php echo $typeColor; ?>"></i>
-                            </div>
-                            <div>
-                                <p class="text-xs font-bold text-gray-800"><?php echo $typeLabel; ?></p>
-                                <p class="text-[10px] text-gray-500">#<?php echo htmlspecialchars(substr($tx['id'], 0, 8)); ?></p>
-                            </div>
-                        </div>
-                        <span class="text-xs <?php echo $status['class']; ?> px-2 py-1 rounded-lg font-bold"><?php echo $status['text']; ?></span>
-                    </div>
-
-                    <div class="p-4 flex flex-col gap-2 text-sm">
-                        <div class="flex justify-between items-center">
-                            <span class="text-gray-500 font-medium"><i class="fa-solid fa-user text-xs ml-1"></i> العميل:</span>
-                            <b class="text-gray-800"><?php echo htmlspecialchars($tx['full_name']); ?></b>
-                        </div>
-                        <div class="flex justify-between items-center">
-                            <span class="text-gray-500 font-medium"><i class="fa-solid fa-hashtag text-xs ml-1"></i> حسابه:</span>
-                            <b class="text-gray-800 font-mono"><?php echo htmlspecialchars($tx['account_number']); ?></b>
-                        </div>
-                        <div class="flex justify-between items-center">
-                            <span class="text-gray-500 font-medium"><i class="fa-solid fa-phone text-xs ml-1"></i> هاتفه:</span>
-                            <b class="text-gray-800 font-mono text-xs" dir="ltr"><?php echo $tx['phone'] ?: '—'; ?></b>
-                        </div>
-                        <div class="flex justify-between items-center bg-red-50 p-2 rounded-lg">
-                            <span class="text-gray-600 font-bold">المبلغ:</span>
-                            <b class="text-lg <?php echo $typeColor; ?>" dir="ltr"><?php echo number_format($amountVal, 2); ?> SDG</b>
-                        </div>
-
-                        <?php if (!$isDeposit): ?>
-                            <div class="flex justify-between items-center">
-                                <span class="text-gray-500 font-medium">اسم المستفيد:</span>
-                                <b class="text-gray-800 text-xs"><?php echo htmlspecialchars($tx['beneficiary_name'] ?? $tx['sender_name'] ?? '—'); ?></b>
-                            </div>
-                            <div class="flex justify-between items-center">
-                                <span class="text-gray-500 font-medium">رقم المستفيد:</span>
-                                <b class="text-gray-800 font-mono text-xs"><?php echo htmlspecialchars($tx['beneficiary_account'] ?? $tx['sender_account'] ?? '—'); ?></b>
-                            </div>
-                            <div class="flex justify-between items-center">
-                                <span class="text-gray-500 font-medium">رقم العملية:</span>
-                                <b class="text-gray-800 font-mono text-xs"><?php echo htmlspecialchars($tx['bank_ref'] ?? '—'); ?></b>
-                            </div>
-                        <?php else: ?>
-                            <div class="flex justify-between items-center">
-                                <span class="text-gray-500 font-medium">الوسيلة:</span>
-                                <b class="text-gray-800 text-xs"><?php echo htmlspecialchars($tx['method'] ?? '—'); ?></b>
-                            </div>
-                            <div class="flex justify-between items-center">
-                                <span class="text-gray-500 font-medium">اسم المحوّل:</span>
-                                <b class="text-gray-800 text-xs"><?php echo htmlspecialchars($tx['sender_name'] ?? '—'); ?></b>
-                            </div>
-                            <div class="flex justify-between items-center">
-                                <span class="text-gray-500 font-medium">رقم المحوّل:</span>
-                                <b class="text-gray-800 font-mono text-xs"><?php echo htmlspecialchars($tx['sender_account'] ?? '—'); ?></b>
-                            </div>
-                        <?php endif; ?>
-
-                        <div class="flex justify-between items-center">
-                            <span class="text-gray-500 font-medium">التاريخ:</span>
-                            <b class="text-gray-700 text-xs" dir="ltr"><?php echo $createdDate; ?></b>
-                        </div>
-
-                        <?php if (!empty($tx['receipt_url'])): ?>
-                            <a href="<?php echo htmlspecialchars($tx['receipt_url']); ?>" target="_blank" class="mt-2">
-                                <img src="<?php echo htmlspecialchars($tx['receipt_url']); ?>" class="w-full h-32 object-cover rounded-lg border hover:opacity-80 transition">
-                                <span class="text-xs text-blue-500 block text-center mt-1"><i class="fa-solid fa-expand"></i> عرض الإشعار</span>
-                            </a>
-                        <?php endif; ?>
-                    </div>
-
-                    <?php if (($tx['status'] ?? '') === 'pending'): ?>
-                        <div class="p-3 bg-gray-50 border-t flex gap-2">
-                            <button onclick='openApproveModal(
-                                <?php echo json_encode($tx["id"]); ?>,
-                                <?php echo json_encode($tx["type"] ?? ""); ?>,
-                                <?php echo json_encode($amountVal); ?>,
-                                <?php echo json_encode($tx["beneficiary_name"] ?? ""); ?>,
-                                <?php echo json_encode($tx["beneficiary_account"] ?? ""); ?>,
-                                <?php echo json_encode($tx["bank_ref"] ?? ""); ?>
-                            )'
-                                class="flex-1 bg-green-600 hover:bg-green-700 text-white text-center py-2 rounded-lg font-bold transition">
-                                <i class="fa-solid fa-check ml-1"></i> موافقة
-                            </button>
-                            <a href="?action=reject&id=<?php echo urlencode($tx['id']); ?>" onclick="return confirm('هل تريد رفض هذا الطلب؟')"
-                               class="flex-1 bg-red-600 hover:bg-red-700 text-white text-center py-2 rounded-lg font-bold transition">
-                                <i class="fa-solid fa-times ml-1"></i> رفض
-                            </a>
-                        </div>
-                    <?php endif; ?>
-                </div>
-            <?php endforeach; ?>
-        </div>
-    <?php endif; ?>
-</div>
-
-<!-- Modal للموافقة -->
-<div id="approveModal" class="modal-overlay" onclick="if(event.target===this)closeApproveModal()">
-    <div class="modal-box p-6">
-        <div class="flex justify-between items-center mb-4 pb-3 border-b">
-            <h3 class="text-xl font-bold text-gray-800">تأكيد الموافقة</h3>
-            <button onclick="closeApproveModal()" class="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center hover:bg-red-100 transition">
-                <i class="fa-solid fa-times text-gray-600"></i>
-            </button>
-        </div>
-
-        <form id="approveForm" method="GET">
-            <input type="hidden" name="action" value="approve">
-            <input type="hidden" name="id" id="approveId">
-
-            <div class="bg-red-50 p-4 rounded-xl mb-4 text-center">
-                <p class="text-xs text-gray-600 mb-1">المبلغ</p>
-                <p class="text-2xl font-extrabold text-red-700" id="approveAmount" dir="ltr">0 SDG</p>
-            </div>
-
-            <div id="withdrawFields" class="hidden">
-                <p class="text-sm font-bold text-gray-700 mb-3 border-r-4 border-red-500 pr-2">بيانات السحب</p>
-
-                <label class="block text-xs text-gray-600 font-bold mb-1">اسم المستفيد (كما في البنك)</label>
-                <input type="text" name="benef_name" id="benefNameInput" class="w-full border p-3 rounded-lg mb-3 outline-none focus:border-red-500" placeholder="سيُحفظ في الإيصال">
-
-                <label class="block text-xs text-gray-600 font-bold mb-1">رقم حساب المستفيد</label>
-                <input type="text" name="benef_acc" id="benefAccInput" class="w-full border p-3 rounded-lg mb-3 outline-none focus:border-red-500" placeholder="سيُحفظ في الإيصال">
-
-                <label class="block text-xs text-gray-600 font-bold mb-1">رقم عملية البنك</label>
-                <input type="text" name="bank_ref" id="bankRefInput" class="w-full border p-3 rounded-lg mb-3 outline-none focus:border-red-500" placeholder="سيُحفظ في الإيصال">
-            </div>
-
-            <div class="flex gap-2 mt-4">
-                <button type="button" onclick="closeApproveModal()" class="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-bold">إلغاء</button>
-                <button type="submit" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-bold">تأكيد الموافقة</button>
-            </div>
-        </form>
-    </div>
-</div>
-
-<script>
-    function openApproveModal(id, type, amount, benefName, benefAcc, bankRef) {
-        document.getElementById('approveId').value = id;
-        document.getElementById('approveAmount').innerText = Number(amount).toLocaleString() + ' SDG';
-
-        const withdrawFields = document.getElementById('withdrawFields');
-        if (type === 'withdrawal') {
-            withdrawFields.classList.remove('hidden');
-            document.getElementById('benefNameInput').value = benefName || '';
-            document.getElementById('benefAccInput').value  = benefAcc  || '';
-            document.getElementById('bankRefInput').value   = bankRef   || '';
-        } else {
-            withdrawFields.classList.add('hidden');
-        }
-
-        document.getElementById('approveModal').classList.add('active');
-    }
-
-    function closeApproveModal() {
-        document.getElementById('approveModal').classList.remove('active');
-    }
-</script>
-
 </body>
 </html>
+`;
+
+// ==========================================
+// 4. موقع العملاء (الواجهة)
+// ==========================================
+app.get('/', (req, res) => {
+    const content = `
+    <div class="bg-white p-6 rounded-2xl shadow-lg border-t-4 border-red-700 max-w-lg mx-auto">
+        <h2 class="text-2xl font-bold text-gray-800 text-center mb-6">طلب إيداع أو سحب</h2>
+        
+        ${req.query.success ? '<div class="bg-green-100 text-green-700 p-4 rounded-lg mb-6 text-center font-bold"><i class="fa-solid fa-check-circle ml-2"></i> تم إرسال الطلب بنجاح!</div>' : ''}
+        ${req.query.error ? '<div class="bg-red-100 text-red-700 p-4 rounded-lg mb-6 text-center font-bold"><i class="fa-solid fa-exclamation-triangle ml-2"></i> حدث خطأ، حاول مرة أخرى.</div>' : ''}
+
+        <form action="/submit" method="POST" enctype="multipart/form-data" class="flex flex-col gap-4">
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-1">اسم العميل الكامل</label>
+                <input type="text" name="full_name" required class="w-full border p-3 rounded-xl outline-none focus:border-red-500 bg-gray-50" placeholder="اكتب اسمك">
+            </div>
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-1">رقم الحساب / الهاتف</label>
+                <input type="text" name="account_number" required class="w-full border p-3 rounded-xl outline-none focus:border-red-500 bg-gray-50" placeholder="رقم الحساب" dir="ltr">
+            </div>
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-1">نوع العملية</label>
+                <select name="type" required class="w-full border p-3 rounded-xl outline-none focus:border-red-500 bg-gray-50">
+                    <option value="deposit">إيداع (شحن رصيد)</option>
+                    <option value="withdrawal">سحب أرباح</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-1">المبلغ (SDG)</label>
+                <input type="number" step="0.01" name="amount" required class="w-full border p-3 rounded-xl outline-none focus:border-red-500 bg-gray-50 text-center text-xl font-bold text-red-700" placeholder="0.00" dir="ltr">
+            </div>
+            <div id="withdrawFields" class="hidden bg-red-50 p-4 rounded-xl border border-red-100 flex flex-col gap-3">
+                <p class="text-sm font-bold text-red-800"><i class="fa-solid fa-info-circle ml-1"></i> بيانات السحب</p>
+                <input type="text" name="beneficiary_name" class="w-full border p-2 rounded-lg outline-none focus:border-red-500" placeholder="اسم المستفيد">
+                <input type="text" name="beneficiary_account" class="w-full border p-2 rounded-lg outline-none focus:border-red-500" placeholder="رقم حساب المستفيد" dir="ltr">
+                <input type="text" name="bank_ref" class="w-full border p-2 rounded-lg outline-none focus:border-red-500" placeholder="رقم عملية البنك" dir="ltr">
+            </div>
+            <div id="depositFields">
+                <label class="block text-sm font-bold text-gray-700 mb-1">اسم المحول</label>
+                <input type="text" name="sender_name" class="w-full border p-3 rounded-xl outline-none focus:border-red-500 bg-gray-50 mb-3" placeholder="اسم الشخص المحول">
+                <label class="block text-sm font-bold text-gray-700 mb-1">صورة الإشعار</label>
+                <input type="file" name="receipt" accept="image/*" class="w-full border p-3 rounded-xl outline-none focus:border-red-500 bg-gray-50 text-sm">
+            </div>
+            <button type="submit" class="bg-red-700 text-white py-4 rounded-xl font-bold text-lg hover:bg-red-800 transition mt-4 shadow-lg shadow-red-200">إرسال الطلب</button>
+        </form>
+    </div>
+    <script>
+        document.querySelector('select[name="type"]').addEventListener('change', function() {
+            document.getElementById('withdrawFields').classList.toggle('hidden', this.value !== 'withdrawal');
+            document.getElementById('depositFields').classList.toggle('hidden', this.value === 'withdrawal');
+        });
+    </script>
+    `;
+    res.send(layout(content));
+});
+
+// استقبال الطلب وحفظه
+app.post('/submit', upload.single('receipt'), async (req, res) => {
+    try {
+        const { full_name, account_number, type, amount, sender_name, beneficiary_name, beneficiary_account, bank_ref } = req.body;
+        let receiptUrl = "";
+
+        if (req.file) {
+            const bucket = admin.storage().bucket("black-9deb2.appspot.com");
+            const blob = bucket.file(`receipts/${Date.now()}_${req.file.originalname}`);
+            const blobStream = blob.createWriteStream({ resumable: false });
+            blobStream.end(req.file.buffer);
+            await new Promise(resolve => blobStream.on('finish', resolve));
+            await blob.makePublic();
+            receiptUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
+        }
+
+        // البحث عن المستخدم أو إنشائه
+        let userId;
+        const usersRef = db.collection('users');
+        const snapshot = await usersRef.where('account_number', '==', account_number).get();
+        if (!snapshot.empty) {
+            userId = snapshot.docs[0].id;
+        } else {
+            const newUser = await usersRef.add({ username: full_name, full_name, account_number, balance: 0, status: 'active', created_at: new Date().toISOString() });
+            userId = newUser.id;
+        }
+
+        // إضافة الطلب
+        await db.collection('transactions').add({
+            user_id: userId, type, amount: parseFloat(amount), sender_name: sender_name || "",
+            beneficiary_name: beneficiary_name || "", beneficiary_account: beneficiary_account || "",
+            bank_ref: bank_ref || "", receipt_url: receiptUrl, status: 'pending', created_at: new Date().toISOString()
+        });
+
+        res.redirect('/?success=1');
+    } catch (error) {
+        console.error(error);
+        res.redirect('/?error=1');
+    }
+});
+
+// ==========================================
+// 5. لوحة تحكم المدير
+// ==========================================
+app.get('/admin', (req, res) => {
+    if (!req.session.admin) {
+        return res.send(layout(`
+            <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm border-t-4 border-red-700 mx-auto mt-20">
+                <div class="text-center mb-6"><h2 class="text-2xl font-bold">دخول الإدارة</h2></div>
+                ${req.query.error ? '<p class="text-red-600 text-center mb-4 font-bold">كلمة المرور خاطئة</p>' : ''}
+                <form method="POST" action="/admin/login" class="flex flex-col gap-4">
+                    <input type="password" name="password" placeholder="كلمة المرور" required class="border p-3 rounded-xl text-center">
+                    <button type="submit" class="bg-red-700 text-white py-3 rounded-xl font-bold">دخول</button>
+                </form>
+            </div>
+        `));
+    }
+    res.redirect('/admin/dashboard');
+});
+
+app.post('/admin/login', (req, res) => {
+    if (req.body.password === ADMIN_PASSWORD) {
+        req.session.admin = true;
+        res.redirect('/admin/dashboard');
+    } else {
+        res.redirect('/admin?error=1');
+    }
+});
+
+app.get('/admin/logout', (req, res) => {
+    req.session.destroy();
+    res.redirect('/admin');
+});
+
+app.get('/admin/dashboard', async (req, res) => {
+    if (!req.session.admin) return res.redirect('/admin');
+    try {
+        const txSnap = await db.collection('transactions').orderBy('created_at', 'desc').get();
+        const usersSnap = await db.collection('users').get();
+        let users = {};
+        usersSnap.forEach(d => users[d.id] = d.data());
+        
+        let txHtml = '';
+        let pendingCount = 0;
+        
+        txSnap.forEach(doc => {
+            const tx = doc.data();
+            if (tx.status === 'pending') pendingCount++;
+            
+            const u = users[tx.user_id] || {};
+            const isDeposit = tx.type === 'deposit';
+            
+            txHtml += `
+            <div class="bg-white rounded-xl shadow-sm border-t-4 ${isDeposit ? 'border-green-500' : 'border-red-500'} overflow-hidden">
+                <div class="bg-gray-50 p-3 flex justify-between items-center border-b">
+                    <b>${isDeposit ? 'إيداع' : 'سحب'} #${doc.id.substring(0,6)}</b>
+                    <span class="text-xs px-2 py-1 rounded-lg ${tx.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : tx.status === 'approved' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${tx.status}</span>
+                </div>
+                <div class="p-4 text-sm flex flex-col gap-2">
+                    <div class="flex justify-between"><span>العميل:</span> <b>${u.full_name || '—'}</b></div>
+                    <div class="flex justify-between"><span>المبلغ:</span> <b class="text-red-700">${parseFloat(tx.amount).toLocaleString()} SDG</b></div>
+                    <div class="flex justify-between"><span>الهاتف:</span> <b>${u.account_number || '—'}</b></div>
+                    ${tx.receipt_url ? `<a href="${tx.receipt_url}" target="_blank" class="text-blue-500 text-xs text-center mt-2"><i class="fa-solid fa-image"></i> عرض الإشعار</a>` : ''}
+                </div>
+                ${tx.status === 'pending' ? `
+                <div class="p-3 bg-gray-50 border-t flex gap-2">
+                    <a href="/admin/action?action=approve&id=${doc.id}" class="flex-1 bg-green-600 text-white text-center py-2 rounded-lg font-bold">موافقة</a>
+                    <a href="/admin/action?action=reject&id=${doc.id}" class="flex-1 bg-red-600 text-white text-center py-2 rounded-lg font-bold">رفض</a>
+                </div>` : ''}
+            </div>`;
+        });
+
+        res.send(layout(`
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">لوحة الإدارة (قيد الانتظار: ${pendingCount})</h2>
+                <a href="/admin/logout" class="bg-gray-200 px-4 py-2 rounded-lg font-bold">خروج</a>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${txHtml || '<p class="text-center col-span-2 text-gray-500">لا توجد طلبات حالياً</p>'}</div>
+        `));
+    } catch (e) {
+        res.send("Error: " + e.message);
+    }
+});
+
+app.get('/admin/action', async (req, res) => {
+    if (!req.session.admin) return res.redirect('/admin');
+    const { action, id } = req.query;
+    try {
+        const txRef = db.collection('transactions').doc(id);
+        const txDoc = await txRef.get();
+        if (txDoc.exists && txDoc.data().status === 'pending') {
+            const tx = txDoc.data();
+            if (action === 'approve') {
+                if (tx.user_id) {
+                    const userRef = db.collection('users').doc(tx.user_id);
+                    const userDoc = await userRef.get();
+                    if (userDoc.exists) {
+                        const current = parseFloat(userDoc.data().balance || 0);
+                        const amount = parseFloat(tx.amount || 0);
+                        const newBal = tx.type === 'deposit' ? current + amount : current - amount;
+                        await userRef.update({ balance: newBal, account_balance: newBal });
+                    }
+                }
+                await txRef.update({ status: 'approved' });
+            } else {
+                await txRef.update({ status: 'rejected' });
+            }
+        }
+        res.redirect('/admin/dashboard');
+    } catch (e) { res.send(e.message); }
+});
+
+app.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
