@@ -1,282 +1,485 @@
-const express = require('express');
-const session = require('express-session');
-const multer = require('multer');
-const admin = require('firebase-admin');
-const path = require('path');
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-const ADMIN_PASSWORD = "Admin@2026";
-
-// ==========================================
-// 1. إعداد Firebase
-// ==========================================
-try {
-    // يقرأ ملف المفاتيح من متغير البيئة أو من ملف محلي
-    const serviceAccount = process.env.FIREBASE_KEY 
-        ? JSON.parse(process.env.FIREBASE_KEY) 
-        : require('./serviceAccount.json');
-        
-    admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        projectId: "black-9deb2"
-    });
-    console.log("✅ Firebase Connected");
-} catch (error) {
-    console.error("❌ Firebase Error: تأكد من إعداد serviceAccount.json أو متغير البيئة");
-}
-const db = admin.firestore();
-
-// ==========================================
-// 2. إعدادات السيرفر
-// ==========================================
-app.use(express.urlencoded({ extended: true }));
-app.use(session({
-    secret: 'super-secret-key',
-    resave: false,
-    saveUninitialized: true,
-    cookie: { secure: false }
-}));
-const upload = multer({ storage: multer.memoryStorage() });
-
-// ==========================================
-// 3. دالة التصميم (HTML)
-// ==========================================
-const layout = (content) => `
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>بلدنا للمدفوعات</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>لوحة تحكم المدير - بلدنا</title>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>body { font-family: 'Cairo', sans-serif; background: #f3f4f6; }</style>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Cairo', sans-serif; background: #f3f4f6; }
+        .stat-card { background: linear-gradient(135deg, #fff 0%, #f9f9f9 100%); }
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 1000; align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(3px); }
+        .modal-overlay.active { display: flex; }
+        .modal-box { background: #fff; border-radius: 20px; max-width: 420px; width: 100%; max-height: 90vh; overflow-y: auto; animation: popIn .3s; }
+        @keyframes popIn { from { transform: scale(.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    </style>
 </head>
 <body>
-    <div class="bg-red-800 text-white p-4 shadow-md sticky top-0 z-50">
-        <div class="max-w-4xl mx-auto flex justify-between items-center">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center"><i class="fa-solid fa-building-columns text-red-700 text-xl"></i></div>
-                <div><h1 class="text-lg font-bold">بلدنا</h1><p class="text-xs opacity-75">للمدفوعات الرقمية</p></div>
+
+<!-- صفحة تسجيل دخول المدير -->
+<div id="loginSection" class="fixed inset-0 bg-gray-100 flex justify-center items-center z-50">
+    <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm border-t-4 border-red-700">
+        <div class="text-center mb-6">
+            <div class="w-20 h-20 bg-red-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i class="fa-solid fa-shield-halved text-white text-3xl"></i>
             </div>
-            <a href="/admin" class="bg-red-900 hover:bg-red-950 px-4 py-2 rounded-lg text-sm transition"><i class="fa-solid fa-shield-halved ml-1"></i> الإدارة</a>
+            <h2 class="text-2xl font-bold text-gray-800">لوحة تحكم المدير</h2>
+            <p class="text-sm text-gray-500 mt-2">الدخول الآمن للإدارة</p>
+        </div>
+        <div id="loginError" class="hidden bg-red-100 text-red-700 p-3 rounded-lg mb-4 text-center text-sm font-bold"></div>
+        <div class="flex flex-col gap-4">
+            <input type="password" id="adminPass" placeholder="كلمة مرور الإدارة" class="border p-3 rounded-xl outline-none focus:border-red-500 text-center" autofocus>
+            <button id="loginBtn" class="bg-red-700 text-white py-3 rounded-xl font-bold hover:bg-red-800 transition">دخول</button>
         </div>
     </div>
-    <div class="max-w-4xl mx-auto p-4 mt-4">
-        ${content}
+</div>
+
+<!-- لوحة التحكم -->
+<div id="adminPanel" class="hidden">
+    <!-- الهيدر -->
+    <div class="bg-red-800 text-white p-4 shadow-md sticky top-0 z-40">
+        <div class="max-w-6xl mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
+                    <i class="fa-solid fa-shield-halved text-red-700 text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold">لوحة تحكم المدير</h1>
+                    <p class="text-xs opacity-75">بلدنا للمدفوعات الرقمية</p>
+                </div>
+            </div>
+            <button id="logoutAdmin" class="bg-red-900 hover:bg-red-950 px-4 py-2 rounded-lg text-sm transition">
+                <i class="fa-solid fa-right-from-bracket ml-1"></i> خروج
+            </button>
+        </div>
     </div>
+
+    <!-- المحتوى -->
+    <div class="max-w-6xl mx-auto p-4 mt-2">
+
+        <!-- الإحصائيات -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            <div class="stat-card p-4 rounded-xl shadow border-t-4 border-yellow-500">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <p class="text-xs text-gray-500 font-bold">قيد الانتظار</p>
+                        <p id="statPending" class="text-2xl font-extrabold text-gray-800 mt-1">0</p>
+                    </div>
+                    <div class="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
+                        <i class="fa-solid fa-clock text-yellow-600"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="stat-card p-4 rounded-xl shadow border-t-4 border-blue-500">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <p class="text-xs text-gray-500 font-bold">المستخدمون</p>
+                        <p id="statUsers" class="text-2xl font-extrabold text-gray-800 mt-1">0</p>
+                    </div>
+                    <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <i class="fa-solid fa-users text-blue-600"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="stat-card p-4 rounded-xl shadow border-t-4 border-green-500">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <p class="text-xs text-gray-500 font-bold">إيداعات مكتملة</p>
+                        <p id="statDeposits" class="text-2xl font-extrabold text-gray-800 mt-1">0</p>
+                    </div>
+                    <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                        <i class="fa-solid fa-arrow-down text-green-600"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="stat-card p-4 rounded-xl shadow border-t-4 border-red-500">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <p class="text-xs text-gray-500 font-bold">سحوبات مكتملة</p>
+                        <p id="statWithdrawals" class="text-2xl font-extrabold text-gray-800 mt-1">0</p>
+                    </div>
+                    <div class="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+                        <i class="fa-solid fa-arrow-up text-red-600"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- عنوان الطلبات -->
+        <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <h2 class="text-xl font-bold text-gray-800 border-r-4 border-red-700 pr-3">
+                <i class="fa-solid fa-list-check ml-2 text-red-700"></i>الطلبات
+            </h2>
+            <button onclick="loadRequests()" class="bg-white border px-3 py-2 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50">
+                <i class="fa-solid fa-rotate ml-1"></i> تحديث
+            </button>
+        </div>
+
+        <!-- تصفية -->
+        <div class="flex gap-2 mb-4 flex-wrap">
+            <button onclick="setFilter('all')" id="filterAll" class="px-4 py-2 rounded-lg font-bold text-sm transition bg-red-700 text-white">
+                <i class="fa-solid fa-layer-group ml-1"></i> الكل
+            </button>
+            <button onclick="setFilter('deposit')" id="filterDeposit" class="px-4 py-2 rounded-lg font-bold text-sm transition bg-white text-gray-700">
+                <i class="fa-solid fa-arrow-down ml-1"></i> إيداعات
+            </button>
+            <button onclick="setFilter('withdrawal')" id="filterWithdrawal" class="px-4 py-2 rounded-lg font-bold text-sm transition bg-white text-gray-700">
+                <i class="fa-solid fa-arrow-up ml-1"></i> سحوبات
+            </button>
+        </div>
+
+        <!-- حاوية الطلبات -->
+        <div id="requestsContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="col-span-full bg-white p-10 rounded-xl text-center text-gray-500 shadow-sm">
+                <i class="fa-solid fa-spinner fa-spin text-3xl mb-3"></i>
+                <p>جاري التحميل...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal للموافقة -->
+<div id="approveModal" class="modal-overlay" onclick="if(event.target===this)closeApproveModal()">
+    <div class="modal-box p-6">
+        <div class="flex justify-between items-center mb-4 pb-3 border-b">
+            <h3 class="text-xl font-bold text-gray-800">تأكيد الموافقة</h3>
+            <button onclick="closeApproveModal()" class="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center hover:bg-red-100 transition">
+                <i class="fa-solid fa-times text-gray-600"></i>
+            </button>
+        </div>
+        
+        <div class="bg-red-50 p-4 rounded-xl mb-4 text-center">
+            <p class="text-xs text-gray-600 mb-1">المبلغ</p>
+            <p class="text-2xl font-extrabold text-red-700" id="approveAmount" dir="ltr">0 SDG</p>
+        </div>
+        
+        <div id="withdrawFields" class="hidden">
+            <p class="text-sm font-bold text-gray-700 mb-3 border-r-4 border-red-500 pr-2">بيانات السحب</p>
+            
+            <label class="block text-xs text-gray-600 font-bold mb-1">اسم المستفيد (كما في البنك)</label>
+            <input type="text" id="benefNameInput" class="w-full border p-3 rounded-lg mb-3 outline-none focus:border-red-500" placeholder="سيُحفظ في الإيصال">
+            
+            <label class="block text-xs text-gray-600 font-bold mb-1">رقم حساب المستفيد</label>
+            <input type="text" id="benefAccInput" class="w-full border p-3 rounded-lg mb-3 outline-none focus:border-red-500" placeholder="سيُحفظ في الإيصال">
+            
+            <label class="block text-xs text-gray-600 font-bold mb-1">رقم عملية البنك</label>
+            <input type="text" id="bankRefInput" class="w-full border p-3 rounded-lg mb-3 outline-none focus:border-red-500" placeholder="سيُحفظ في الإيصال">
+        </div>
+        
+        <div class="flex gap-2 mt-4">
+            <button onclick="closeApproveModal()" class="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-bold">إلغاء</button>
+            <button onclick="confirmApprove()" id="confirmApproveBtn" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-bold">تأكيد الموافقة</button>
+        </div>
+    </div>
+</div>
+
+<!-- Firebase -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, collection, query, where, getDocs, doc, updateDoc, increment, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyCdV3qgXHHxz4e8mf1c-2TrZujXqY-LuQc",
+        authDomain: "black-9deb2.firebaseapp.com",
+        projectId: "black-9deb2",
+        storageBucket: "black-9deb2.firebasestorage.app",
+        messagingSenderId: "725901940218",
+        appId: "1:725901940218:web:bc10585da68be02dc14043"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const ADMIN_PASSWORD = "Admin@2026";
+    let currentFilter = 'all';
+    let allRequests = [];
+    let currentApproveId = null;
+    let currentApproveType = null;
+
+    const loginSection = document.getElementById('loginSection');
+    const adminPanel = document.getElementById('adminPanel');
+    const requestsContainer = document.getElementById('requestsContainer');
+
+    /* تسجيل الدخول */
+    document.getElementById('loginBtn').addEventListener('click', () => {
+        const pass = document.getElementById('adminPass').value;
+        if (pass === ADMIN_PASSWORD) {
+            sessionStorage.setItem('admin_logged_in', '1');
+            showAdminPanel();
+        } else {
+            const err = document.getElementById('loginError');
+            err.textContent = '❌ كلمة المرور غير صحيحة';
+            err.classList.remove('hidden');
+        }
+    });
+
+    document.getElementById('adminPass').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') document.getElementById('loginBtn').click();
+    });
+
+    /* تسجيل الخروج */
+    document.getElementById('logoutAdmin').addEventListener('click', () => {
+        sessionStorage.removeItem('admin_logged_in');
+        adminPanel.classList.add('hidden');
+        loginSection.classList.remove('hidden');
+        document.getElementById('adminPass').value = '';
+    });
+
+    function showAdminPanel() {
+        loginSection.classList.add('hidden');
+        adminPanel.classList.remove('hidden');
+        loadRequests();
+    }
+
+    /* تصفية */
+    window.setFilter = function(filter) {
+        currentFilter = filter;
+        ['all','deposit','withdrawal'].forEach(f => {
+            const btn = document.getElementById('filter' + f.charAt(0).toUpperCase() + f.slice(1));
+            if (f === filter) {
+                btn.className = 'px-4 py-2 rounded-lg font-bold text-sm transition bg-red-700 text-white';
+            } else {
+                btn.className = 'px-4 py-2 rounded-lg font-bold text-sm transition bg-white text-gray-700';
+            }
+        });
+        renderRequests();
+    };
+
+    /* تحميل الطلبات */
+    window.loadRequests = async function() {
+        requestsContainer.innerHTML = `
+            <div class="col-span-full bg-white p-10 rounded-xl text-center text-gray-500 shadow-sm">
+                <i class="fa-solid fa-spinner fa-spin text-3xl mb-3"></i>
+                <p>جاري التحميل...</p>
+            </div>`;
+        
+        try {
+            const txRef = collection(db, "transactions");
+            const snapshot = await getDocs(txRef);
+            allRequests = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            
+            allRequests.sort((a, b) => {
+                const dateA = a.created_at?.toDate?.() || new Date(a.created_at || 0);
+                const dateB = b.created_at?.toDate?.() || new Date(b.created_at || 0);
+                return dateB - dateA;
+            });
+
+            const pendingCount = allRequests.filter(r => r.status === 'pending').length;
+            const depositsApproved = allRequests.filter(r => r.type === 'deposit' && r.status === 'approved').length;
+            const withdrawalsApproved = allRequests.filter(r => r.type === 'withdrawal' && r.status === 'approved').length;
+
+            document.getElementById('statPending').innerText = pendingCount;
+            document.getElementById('statDeposits').innerText = depositsApproved;
+            document.getElementById('statWithdrawals').innerText = withdrawalsApproved;
+
+            const usersRef = collection(db, "users");
+            const usersSnap = await getDocs(usersRef);
+            document.getElementById('statUsers').innerText = usersSnap.size;
+
+            renderRequests();
+        } catch (error) {
+            console.error(error);
+            requestsContainer.innerHTML = `<div class="col-span-full bg-red-50 p-6 rounded-xl text-center text-red-600">حدث خطأ في التحميل</div>`;
+        }
+    };
+
+    function renderRequests() {
+        let filtered = allRequests;
+        if (currentFilter === 'deposit') filtered = allRequests.filter(r => r.type === 'deposit');
+        if (currentFilter === 'withdrawal') filtered = allRequests.filter(r => r.type === 'withdrawal');
+
+        if (filtered.length === 0) {
+            requestsContainer.innerHTML = `
+                <div class="col-span-full bg-white p-10 rounded-xl text-center text-gray-500 shadow-sm border">
+                    <i class="fa-solid fa-inbox text-5xl text-gray-300 mb-4"></i>
+                    <h3 class="text-xl font-bold">لا توجد طلبات حالياً</h3>
+                </div>`;
+            return;
+        }
+
+        requestsContainer.innerHTML = filtered.map(tx => {
+            const statusConfig = {
+                'pending': { class: 'bg-yellow-100 text-yellow-800', text: 'قيد الانتظار' },
+                'approved': { class: 'bg-green-100 text-green-800', text: 'مكتمل' },
+                'rejected': { class: 'bg-red-100 text-red-800', text: 'مرفوض' }
+            };
+            const status = statusConfig[tx.status] || statusConfig.pending;
+            const isDeposit = tx.type === 'deposit';
+            const typeLabel = isDeposit ? 'إيداع / شحن رصيد' : 'سحب أرباح';
+            const typeColor = isDeposit ? 'text-green-600' : 'text-red-600';
+            const typeIcon = isDeposit ? 'fa-arrow-down' : 'fa-arrow-up';
+            const typeBg = isDeposit ? 'bg-green-50' : 'bg-red-50';
+            const typeBorder = isDeposit ? 'border-green-500' : 'border-red-500';
+
+            const dateObj = tx.created_at?.toDate?.() || new Date(tx.created_at);
+            const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth()+1).padStart(2,'0')}-${String(dateObj.getDate()).padStart(2,'0')} ${String(dateObj.getHours()).padStart(2,'0')}:${String(dateObj.getMinutes()).padStart(2,'0')}`;
+
+            const benefName = tx.beneficiary_name || tx.sender_name || '—';
+            const benefAcc = tx.beneficiary_account || tx.sender_account || '—';
+            const bankRef = tx.bank_ref || tx.transaction_ref || '—';
+
+            const receiptHtml = tx.receipt_url ? `
+                <a href="${tx.receipt_url}" target="_blank" class="mt-2 block">
+                    <img src="${tx.receipt_url}" class="w-full h-32 object-cover rounded-lg border hover:opacity-80 transition">
+                    <span class="text-xs text-blue-500 block text-center mt-1"><i class="fa-solid fa-expand"></i> عرض الإشعار</span>
+                </a>` : '';
+
+            const actionsHtml = tx.status === 'pending' ? `
+                <div class="p-3 bg-gray-50 border-t flex gap-2">
+                    <button onclick="openApproveModal('${tx.id}', '${tx.type}', ${tx.amount}, '${benefName}', '${benefAcc}', '${bankRef}')" 
+                            class="flex-1 bg-green-600 hover:bg-green-700 text-white text-center py-2 rounded-lg font-bold transition">
+                        <i class="fa-solid fa-check ml-1"></i> موافقة
+                    </button>
+                    <button onclick="rejectRequest('${tx.id}')" 
+                            class="flex-1 bg-red-600 hover:bg-red-700 text-white text-center py-2 rounded-lg font-bold transition">
+                        <i class="fa-solid fa-times ml-1"></i> رفض
+                    </button>
+                </div>` : '';
+
+            return `
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden border-t-4 ${typeBorder}">
+                    <div class="bg-gray-50 p-3 border-b flex justify-between items-center">
+                        <div class="flex items-center gap-2">
+                            <div class="w-8 h-8 ${typeBg} rounded-lg flex items-center justify-center">
+                                <i class="fa-solid ${typeIcon} ${typeColor}"></i>
+                            </div>
+                            <div>
+                                <p class="text-xs font-bold text-gray-800">${typeLabel}</p>
+                                <p class="text-[10px] text-gray-500">#${tx.id ? tx.id.slice(-6).toUpperCase() : '---'}</p>
+                            </div>
+                        </div>
+                        <span class="text-xs ${status.class} px-2 py-1 rounded-lg font-bold">${status.text}</span>
+                    </div>
+                    
+                    <div class="p-4 flex flex-col gap-2 text-sm">
+                        <div class="flex justify-between items-center bg-red-50 p-2 rounded-lg">
+                            <span class="text-gray-600 font-bold">المبلغ:</span>
+                            <b class="text-lg ${typeColor}" dir="ltr">${parseFloat(tx.amount).toLocaleString('en', {minimumFractionDigits:2})} SDG</b>
+                        </div>
+                        
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-500 font-medium">اسم المستفيد:</span>
+                            <b class="text-gray-800 text-xs">${benefName}</b>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-500 font-medium">رقم المستفيد:</span>
+                            <b class="text-gray-800 font-mono text-xs">${benefAcc}</b>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-500 font-medium">رقم العملية:</span>
+                            <b class="text-gray-800 font-mono text-xs">${bankRef}</b>
+                        </div>
+                        
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-500 font-medium">الوسيلة:</span>
+                            <b class="text-gray-800 text-xs">${tx.method || '—'}</b>
+                        </div>
+                        
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-500 font-medium">التاريخ:</span>
+                            <b class="text-gray-700 text-xs" dir="ltr">${dateStr}</b>
+                        </div>
+                        
+                        ${receiptHtml}
+                    </div>
+                    
+                    ${actionsHtml}
+                </div>`;
+        }).join('');
+    }
+
+    /* فتح Modal الموافقة */
+    window.openApproveModal = function(id, type, amount, benefName, benefAcc, bankRef) {
+        currentApproveId = id;
+        currentApproveType = type;
+        document.getElementById('approveAmount').innerText = amount.toLocaleString('en', {minimumFractionDigits:2}) + ' SDG';
+        
+        const withdrawFields = document.getElementById('withdrawFields');
+        if (type === 'withdrawal') {
+            withdrawFields.classList.remove('hidden');
+            document.getElementById('benefNameInput').value = benefName === '—' ? '' : benefName;
+            document.getElementById('benefAccInput').value = benefAcc === '—' ? '' : benefAcc;
+            document.getElementById('bankRefInput').value = bankRef === '—' ? '' : bankRef;
+        } else {
+            withdrawFields.classList.add('hidden');
+        }
+        
+        document.getElementById('approveModal').classList.add('active');
+    };
+
+    window.closeApproveModal = function() {
+        document.getElementById('approveModal').classList.remove('active');
+    };
+
+    /* تأكيد الموافقة */
+    window.confirmApprove = async function() {
+        if (!currentApproveId) return;
+        
+        const btn = document.getElementById('confirmApproveBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري المعالجة...';
+        
+        try {
+            const txRef = doc(db, "transactions", currentApproveId);
+            const txSnap = await getDoc(txRef);
+            if (!txSnap.exists()) throw new Error("الطلب غير موجود");
+            const txData = txSnap.data();
+            
+            const userRef = doc(db, "users", txData.user_id);
+            const userSnap = await getDoc(userRef);
+            if (!userSnap.exists()) throw new Error("المستخدم غير موجود");
+            const currentBalance = parseFloat(userSnap.data().balance || 0);
+            
+            let updateData = { status: 'approved', approved_at: new Date() };
+            
+            if (currentApproveType === 'withdrawal') {
+                updateData.beneficiary_name = document.getElementById('benefNameInput').value;
+                updateData.beneficiary_account = document.getElementById('benefAccInput').value;
+                updateData.bank_ref = document.getElementById('bankRefInput').value;
+                
+                if (currentBalance < parseFloat(txData.amount)) {
+                    alert('⚠️ رصيد المستخدم غير كافٍ للخصم');
+                    btn.disabled = false;
+                    btn.innerHTML = 'تأكيد الموافقة';
+                    return;
+                }
+                
+                await updateDoc(userRef, { balance: currentBalance - parseFloat(txData.amount) });
+            } else {
+                await updateDoc(userRef, { balance: currentBalance + parseFloat(txData.amount) });
+            }
+            
+            await updateDoc(txRef, updateData);
+            
+            closeApproveModal();
+            await loadRequests();
+        } catch (error) {
+            console.error(error);
+            alert('حدث خطأ: ' + error.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = 'تأكيد الموافقة';
+        }
+    };
+
+    /* الرفض */
+    window.rejectRequest = async function(id) {
+        if (!confirm('هل تريد رفض هذا الطلب؟')) return;
+        try {
+            await updateDoc(doc(db, "transactions", id), { status: 'rejected' });
+            await loadRequests();
+        } catch (error) {
+            alert('حدث خطأ: ' + error.message);
+        }
+    };
+
+    /* تحقق من الجلسة */
+    if (sessionStorage.getItem('admin_logged_in') === '1') {
+        showAdminPanel();
+    }
+</script>
+
 </body>
 </html>
-`;
-
-// ==========================================
-// 4. موقع العملاء (الواجهة)
-// ==========================================
-app.get('/', (req, res) => {
-    const content = `
-    <div class="bg-white p-6 rounded-2xl shadow-lg border-t-4 border-red-700 max-w-lg mx-auto">
-        <h2 class="text-2xl font-bold text-gray-800 text-center mb-6">طلب إيداع أو سحب</h2>
-        
-        ${req.query.success ? '<div class="bg-green-100 text-green-700 p-4 rounded-lg mb-6 text-center font-bold"><i class="fa-solid fa-check-circle ml-2"></i> تم إرسال الطلب بنجاح!</div>' : ''}
-        ${req.query.error ? '<div class="bg-red-100 text-red-700 p-4 rounded-lg mb-6 text-center font-bold"><i class="fa-solid fa-exclamation-triangle ml-2"></i> حدث خطأ، حاول مرة أخرى.</div>' : ''}
-
-        <form action="/submit" method="POST" enctype="multipart/form-data" class="flex flex-col gap-4">
-            <div>
-                <label class="block text-sm font-bold text-gray-700 mb-1">اسم العميل الكامل</label>
-                <input type="text" name="full_name" required class="w-full border p-3 rounded-xl outline-none focus:border-red-500 bg-gray-50" placeholder="اكتب اسمك">
-            </div>
-            <div>
-                <label class="block text-sm font-bold text-gray-700 mb-1">رقم الحساب / الهاتف</label>
-                <input type="text" name="account_number" required class="w-full border p-3 rounded-xl outline-none focus:border-red-500 bg-gray-50" placeholder="رقم الحساب" dir="ltr">
-            </div>
-            <div>
-                <label class="block text-sm font-bold text-gray-700 mb-1">نوع العملية</label>
-                <select name="type" required class="w-full border p-3 rounded-xl outline-none focus:border-red-500 bg-gray-50">
-                    <option value="deposit">إيداع (شحن رصيد)</option>
-                    <option value="withdrawal">سحب أرباح</option>
-                </select>
-            </div>
-            <div>
-                <label class="block text-sm font-bold text-gray-700 mb-1">المبلغ (SDG)</label>
-                <input type="number" step="0.01" name="amount" required class="w-full border p-3 rounded-xl outline-none focus:border-red-500 bg-gray-50 text-center text-xl font-bold text-red-700" placeholder="0.00" dir="ltr">
-            </div>
-            <div id="withdrawFields" class="hidden bg-red-50 p-4 rounded-xl border border-red-100 flex flex-col gap-3">
-                <p class="text-sm font-bold text-red-800"><i class="fa-solid fa-info-circle ml-1"></i> بيانات السحب</p>
-                <input type="text" name="beneficiary_name" class="w-full border p-2 rounded-lg outline-none focus:border-red-500" placeholder="اسم المستفيد">
-                <input type="text" name="beneficiary_account" class="w-full border p-2 rounded-lg outline-none focus:border-red-500" placeholder="رقم حساب المستفيد" dir="ltr">
-                <input type="text" name="bank_ref" class="w-full border p-2 rounded-lg outline-none focus:border-red-500" placeholder="رقم عملية البنك" dir="ltr">
-            </div>
-            <div id="depositFields">
-                <label class="block text-sm font-bold text-gray-700 mb-1">اسم المحول</label>
-                <input type="text" name="sender_name" class="w-full border p-3 rounded-xl outline-none focus:border-red-500 bg-gray-50 mb-3" placeholder="اسم الشخص المحول">
-                <label class="block text-sm font-bold text-gray-700 mb-1">صورة الإشعار</label>
-                <input type="file" name="receipt" accept="image/*" class="w-full border p-3 rounded-xl outline-none focus:border-red-500 bg-gray-50 text-sm">
-            </div>
-            <button type="submit" class="bg-red-700 text-white py-4 rounded-xl font-bold text-lg hover:bg-red-800 transition mt-4 shadow-lg shadow-red-200">إرسال الطلب</button>
-        </form>
-    </div>
-    <script>
-        document.querySelector('select[name="type"]').addEventListener('change', function() {
-            document.getElementById('withdrawFields').classList.toggle('hidden', this.value !== 'withdrawal');
-            document.getElementById('depositFields').classList.toggle('hidden', this.value === 'withdrawal');
-        });
-    </script>
-    `;
-    res.send(layout(content));
-});
-
-// استقبال الطلب وحفظه
-app.post('/submit', upload.single('receipt'), async (req, res) => {
-    try {
-        const { full_name, account_number, type, amount, sender_name, beneficiary_name, beneficiary_account, bank_ref } = req.body;
-        let receiptUrl = "";
-
-        if (req.file) {
-            const bucket = admin.storage().bucket("black-9deb2.appspot.com");
-            const blob = bucket.file(`receipts/${Date.now()}_${req.file.originalname}`);
-            const blobStream = blob.createWriteStream({ resumable: false });
-            blobStream.end(req.file.buffer);
-            await new Promise(resolve => blobStream.on('finish', resolve));
-            await blob.makePublic();
-            receiptUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
-        }
-
-        // البحث عن المستخدم أو إنشائه
-        let userId;
-        const usersRef = db.collection('users');
-        const snapshot = await usersRef.where('account_number', '==', account_number).get();
-        if (!snapshot.empty) {
-            userId = snapshot.docs[0].id;
-        } else {
-            const newUser = await usersRef.add({ username: full_name, full_name, account_number, balance: 0, status: 'active', created_at: new Date().toISOString() });
-            userId = newUser.id;
-        }
-
-        // إضافة الطلب
-        await db.collection('transactions').add({
-            user_id: userId, type, amount: parseFloat(amount), sender_name: sender_name || "",
-            beneficiary_name: beneficiary_name || "", beneficiary_account: beneficiary_account || "",
-            bank_ref: bank_ref || "", receipt_url: receiptUrl, status: 'pending', created_at: new Date().toISOString()
-        });
-
-        res.redirect('/?success=1');
-    } catch (error) {
-        console.error(error);
-        res.redirect('/?error=1');
-    }
-});
-
-// ==========================================
-// 5. لوحة تحكم المدير
-// ==========================================
-app.get('/admin', (req, res) => {
-    if (!req.session.admin) {
-        return res.send(layout(`
-            <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm border-t-4 border-red-700 mx-auto mt-20">
-                <div class="text-center mb-6"><h2 class="text-2xl font-bold">دخول الإدارة</h2></div>
-                ${req.query.error ? '<p class="text-red-600 text-center mb-4 font-bold">كلمة المرور خاطئة</p>' : ''}
-                <form method="POST" action="/admin/login" class="flex flex-col gap-4">
-                    <input type="password" name="password" placeholder="كلمة المرور" required class="border p-3 rounded-xl text-center">
-                    <button type="submit" class="bg-red-700 text-white py-3 rounded-xl font-bold">دخول</button>
-                </form>
-            </div>
-        `));
-    }
-    res.redirect('/admin/dashboard');
-});
-
-app.post('/admin/login', (req, res) => {
-    if (req.body.password === ADMIN_PASSWORD) {
-        req.session.admin = true;
-        res.redirect('/admin/dashboard');
-    } else {
-        res.redirect('/admin?error=1');
-    }
-});
-
-app.get('/admin/logout', (req, res) => {
-    req.session.destroy();
-    res.redirect('/admin');
-});
-
-app.get('/admin/dashboard', async (req, res) => {
-    if (!req.session.admin) return res.redirect('/admin');
-    try {
-        const txSnap = await db.collection('transactions').orderBy('created_at', 'desc').get();
-        const usersSnap = await db.collection('users').get();
-        let users = {};
-        usersSnap.forEach(d => users[d.id] = d.data());
-        
-        let txHtml = '';
-        let pendingCount = 0;
-        
-        txSnap.forEach(doc => {
-            const tx = doc.data();
-            if (tx.status === 'pending') pendingCount++;
-            
-            const u = users[tx.user_id] || {};
-            const isDeposit = tx.type === 'deposit';
-            
-            txHtml += `
-            <div class="bg-white rounded-xl shadow-sm border-t-4 ${isDeposit ? 'border-green-500' : 'border-red-500'} overflow-hidden">
-                <div class="bg-gray-50 p-3 flex justify-between items-center border-b">
-                    <b>${isDeposit ? 'إيداع' : 'سحب'} #${doc.id.substring(0,6)}</b>
-                    <span class="text-xs px-2 py-1 rounded-lg ${tx.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : tx.status === 'approved' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${tx.status}</span>
-                </div>
-                <div class="p-4 text-sm flex flex-col gap-2">
-                    <div class="flex justify-between"><span>العميل:</span> <b>${u.full_name || '—'}</b></div>
-                    <div class="flex justify-between"><span>المبلغ:</span> <b class="text-red-700">${parseFloat(tx.amount).toLocaleString()} SDG</b></div>
-                    <div class="flex justify-between"><span>الهاتف:</span> <b>${u.account_number || '—'}</b></div>
-                    ${tx.receipt_url ? `<a href="${tx.receipt_url}" target="_blank" class="text-blue-500 text-xs text-center mt-2"><i class="fa-solid fa-image"></i> عرض الإشعار</a>` : ''}
-                </div>
-                ${tx.status === 'pending' ? `
-                <div class="p-3 bg-gray-50 border-t flex gap-2">
-                    <a href="/admin/action?action=approve&id=${doc.id}" class="flex-1 bg-green-600 text-white text-center py-2 rounded-lg font-bold">موافقة</a>
-                    <a href="/admin/action?action=reject&id=${doc.id}" class="flex-1 bg-red-600 text-white text-center py-2 rounded-lg font-bold">رفض</a>
-                </div>` : ''}
-            </div>`;
-        });
-
-        res.send(layout(`
-            <div class="flex justify-between items-center mb-6">
-                <h2 class="text-2xl font-bold">لوحة الإدارة (قيد الانتظار: ${pendingCount})</h2>
-                <a href="/admin/logout" class="bg-gray-200 px-4 py-2 rounded-lg font-bold">خروج</a>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${txHtml || '<p class="text-center col-span-2 text-gray-500">لا توجد طلبات حالياً</p>'}</div>
-        `));
-    } catch (e) {
-        res.send("Error: " + e.message);
-    }
-});
-
-app.get('/admin/action', async (req, res) => {
-    if (!req.session.admin) return res.redirect('/admin');
-    const { action, id } = req.query;
-    try {
-        const txRef = db.collection('transactions').doc(id);
-        const txDoc = await txRef.get();
-        if (txDoc.exists && txDoc.data().status === 'pending') {
-            const tx = txDoc.data();
-            if (action === 'approve') {
-                if (tx.user_id) {
-                    const userRef = db.collection('users').doc(tx.user_id);
-                    const userDoc = await userRef.get();
-                    if (userDoc.exists) {
-                        const current = parseFloat(userDoc.data().balance || 0);
-                        const amount = parseFloat(tx.amount || 0);
-                        const newBal = tx.type === 'deposit' ? current + amount : current - amount;
-                        await userRef.update({ balance: newBal, account_balance: newBal });
-                    }
-                }
-                await txRef.update({ status: 'approved' });
-            } else {
-                await txRef.update({ status: 'rejected' });
-            }
-        }
-        res.redirect('/admin/dashboard');
-    } catch (e) { res.send(e.message); }
-});
-
-app.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
