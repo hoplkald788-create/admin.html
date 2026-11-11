@@ -20,8 +20,8 @@
     @keyframes popIn { from { transform: scale(.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
     .action-btn { transition: all .2s; }
     .action-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 12px rgba(0,0,0,.15); }
-    .requests-panel { display: none; }
-    .requests-panel.active { display: block; }
+    .receipt-thumb { transition: all .2s; cursor: pointer; }
+    .receipt-thumb:hover { opacity: .85; transform: scale(1.02); }
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 </style>
@@ -95,7 +95,6 @@
 
             <!-- صفحة الرئيسية -->
             <div id="pageHome">
-                <!-- بطاقات الإحصائيات -->
                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
                     <div class="stat-card p-4 rounded-xl shadow border-t-4 border-blue-500">
                         <div class="flex justify-between items-start">
@@ -143,7 +142,6 @@
                     </div>
                 </div>
 
-                <!-- الأزرار الإدارية -->
                 <div class="bg-white p-4 rounded-xl shadow mb-5">
                     <h3 class="text-sm font-bold text-gray-700 mb-3 border-r-4 border-red-700 pr-2">
                         <i class="fa-solid fa-bolt ml-1 text-red-700"></i> إجراءات سريعة
@@ -167,7 +165,6 @@
                     </div>
                 </div>
 
-                <!-- بطاقات الطلبات المعلقة -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
                     <div onclick="showPage('deposits')" class="stat-card clickable p-5 rounded-xl shadow border-t-4 border-green-500">
                         <div class="flex justify-between items-center">
@@ -317,6 +314,26 @@
     </div>
 </div>
 
+<!-- Modal عرض الإيصال -->
+<div id="receiptModal" class="modal-overlay" onclick="if(event.target===this)closeReceiptModal()" style="z-index:1100;">
+    <div class="bg-white rounded-2xl max-w-3xl w-full max-h-[92vh] overflow-hidden flex flex-col" style="animation: popIn .3s;">
+        <div class="flex justify-between items-center p-4 border-b bg-gray-50">
+            <h3 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-receipt ml-2 text-red-700"></i> الإيصال المرفق</h3>
+            <div class="flex gap-2">
+                <a id="receiptDownload" href="#" target="_blank" class="w-9 h-9 bg-blue-100 rounded-full flex items-center justify-center hover:bg-blue-200 transition" title="فتح في تبويب جديد">
+                    <i class="fa-solid fa-external-link-alt text-blue-600"></i>
+                </a>
+                <button onclick="closeReceiptModal()" class="w-9 h-9 bg-gray-200 rounded-full flex items-center justify-center hover:bg-red-100 transition">
+                    <i class="fa-solid fa-times text-gray-700"></i>
+                </button>
+            </div>
+        </div>
+        <div class="flex-1 overflow-auto p-4 bg-gray-100 flex items-center justify-center">
+            <img id="receiptImage" src="" alt="الإيصال" class="max-w-full max-h-[75vh] object-contain rounded-lg shadow-lg">
+        </div>
+    </div>
+</div>
+
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getFirestore, collection, query, where, getDocs, doc, updateDoc, getDoc, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
@@ -343,7 +360,6 @@ let currentApproveType = null;
 const loginSection = document.getElementById('loginSection');
 const adminPanel = document.getElementById('adminPanel');
 
-/* تسجيل الدخول */
 document.getElementById('loginBtn').addEventListener('click', () => {
     const pass = document.getElementById('adminPass').value;
     if (pass === ADMIN_PASSWORD) {
@@ -365,8 +381,7 @@ document.getElementById('logoutAdmin').addEventListener('click', () => {
     document.getElementById('adminPass').value = '';
 });
 document.getElementById('menuToggle').addEventListener('click', () => {
-    const sidebar = document.getElementById('sidebar');
-    sidebar.classList.toggle('translate-x-full');
+    document.getElementById('sidebar').classList.toggle('translate-x-full');
 });
 
 function showAdminPanel() {
@@ -375,7 +390,6 @@ function showAdminPanel() {
     loadAllData();
 }
 
-/* التنقل بين الصفحات */
 window.showPage = function(page) {
     ['home','users','deposits','withdrawals'].forEach(p => {
         document.getElementById('page' + p.charAt(0).toUpperCase() + p.slice(1)).classList.add('hidden');
@@ -385,20 +399,16 @@ window.showPage = function(page) {
     document.getElementById('nav' + page.charAt(0).toUpperCase() + page.slice(1)).classList.add('active');
     if (page === 'users') loadUsers();
     if (page === 'deposits' || page === 'withdrawals') renderRequests();
-    // إغلاق السايدبار في الموبايل
     if (window.innerWidth < 768) {
         document.getElementById('sidebar').classList.add('translate-x-full');
     }
 };
 
-/* تحميل كل البيانات */
 async function loadAllData() {
     try {
-        // تحميل المستخدمين
         const usersSnap = await getDocs(collection(db, "users"));
         allUsers = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-        // تحميل المعاملات
         const txSnap = await getDocs(collection(db, "transactions"));
         allRequests = txSnap.docs.map(d => ({ id: d.id, ...d.data() }));
         allRequests.sort((a, b) => {
@@ -435,11 +445,9 @@ function updateStats() {
     document.getElementById('statPendingWitCount').innerText = pendingWit.length + ' طلب';
 }
 
-/* عرض المستخدمين */
 async function loadUsers() {
     const container = document.getElementById('usersTableContainer');
     container.innerHTML = `<div class="text-center text-gray-500 py-10"><i class="fa-solid fa-spinner fa-spin text-3xl mb-3"></i><p>جاري التحميل...</p></div>`;
-    
     try {
         const snap = await getDocs(collection(db, "users"));
         allUsers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -517,13 +525,16 @@ window.quickAction = function(action, account) {
     document.getElementById('actionAccount').value = account;
 };
 
-/* عرض الطلبات */
 function renderRequests() {
     const pendingDep = allRequests.filter(r => r.type === 'deposit' && r.status === 'pending');
     const pendingWit = allRequests.filter(r => r.type === 'withdrawal' && r.status === 'pending');
-    
     document.getElementById('depositsContainer').innerHTML = renderRequestList(pendingDep, 'deposit');
     document.getElementById('withdrawalsContainer').innerHTML = renderRequestList(pendingWit, 'withdrawal');
+}
+
+/* استخراج رابط الإيصال من عدة احتمالات */
+function getReceiptUrl(tx) {
+    return tx.receipt_url || tx.receipt || tx.image_url || tx.proof_url || tx.screenshot || tx.receipt_image || null;
 }
 
 function renderRequestList(list, type) {
@@ -541,6 +552,25 @@ function renderRequestList(list, type) {
         const benefName = tx.beneficiary_name || tx.sender_name || '—';
         const benefAcc = tx.beneficiary_account || tx.sender_account || '—';
         const bankRef = tx.bank_ref || tx.transaction_ref || '—';
+        const receiptUrl = getReceiptUrl(tx);
+
+        const receiptHtml = receiptUrl ? `
+            <div class="mt-2">
+                <p class="text-xs text-gray-600 font-bold mb-2"><i class="fa-solid fa-receipt ml-1"></i> الإيصال المرفق:</p>
+                <div class="relative group" onclick="openReceiptModal('${receiptUrl.replace(/'/g, "\\'")}')">
+                    <img src="${receiptUrl}" alt="إيصال" class="receipt-thumb w-full h-40 object-cover rounded-lg border-2 border-gray-200" onerror="this.parentElement.innerHTML='<div class=\\'p-4 bg-red-50 text-red-600 text-center rounded-lg text-xs font-bold\\'>⚠️ تعذر تحميل صورة الإيصال</div>'">
+                    <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 rounded-lg flex items-center justify-center transition">
+                        <i class="fa-solid fa-magnifying-glass-plus text-white text-3xl opacity-0 group-hover:opacity-100 transition"></i>
+                    </div>
+                </div>
+                <p class="text-[10px] text-center text-gray-500 mt-1"><i class="fa-solid fa-hand-pointer ml-1"></i> اضغط للتكبير</p>
+            </div>
+        ` : `
+            <div class="mt-2 p-3 bg-gray-50 rounded-lg text-center border border-dashed">
+                <i class="fa-solid fa-image-slash text-gray-400 text-2xl mb-1"></i>
+                <p class="text-xs text-gray-500 font-bold">لا يوجد إيصال مرفق</p>
+            </div>
+        `;
 
         return `
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden border-t-4 ${isDeposit ? 'border-green-500' : 'border-red-500'}">
@@ -581,9 +611,10 @@ function renderRequestList(list, type) {
                         <span class="text-gray-500 font-medium">التاريخ:</span>
                         <b class="text-gray-700 text-xs" dir="ltr">${dateStr}</b>
                     </div>
+                    ${receiptHtml}
                 </div>
                 <div class="p-3 bg-gray-50 border-t flex gap-2">
-                    <button onclick="openApproveModal('${tx.id}', '${tx.type}', ${tx.amount}, '${benefName}', '${benefAcc}', '${bankRef}')" 
+                    <button onclick="openApproveModal('${tx.id}', '${tx.type}', ${tx.amount}, '${benefName.replace(/'/g, "\\'")}', '${benefAcc.replace(/'/g, "\\'")}', '${bankRef.replace(/'/g, "\\'")}')" 
                             class="flex-1 bg-green-600 hover:bg-green-700 text-white text-center py-2 rounded-lg font-bold transition">
                         <i class="fa-solid fa-check ml-1"></i> موافقة
                     </button>
@@ -597,11 +628,21 @@ function renderRequestList(list, type) {
     }).join('');
 }
 
+/* Modal الإيصال */
+window.openReceiptModal = function(url) {
+    document.getElementById('receiptImage').src = url;
+    document.getElementById('receiptDownload').href = url;
+    document.getElementById('receiptModal').classList.add('active');
+};
+window.closeReceiptModal = function() {
+    document.getElementById('receiptModal').classList.remove('active');
+    document.getElementById('receiptImage').src = '';
+};
+
 window.loadRequests = async function() {
     await loadAllData();
 };
 
-/* Action Modal */
 window.openActionModal = function(action) {
     currentAction = action;
     const titles = {
@@ -631,7 +672,6 @@ window.closeActionModal = function() {
     document.getElementById('actionModal').classList.remove('active');
 };
 
-/* البحث عن مستخدم برقم الحساب */
 function findUser(account) {
     account = account.trim().toLowerCase();
     return allUsers.find(u => {
@@ -640,7 +680,6 @@ function findUser(account) {
     });
 }
 
-/* تنفيذ الإجراء */
 window.executeAction = async function() {
     const account = document.getElementById('actionAccount').value.trim();
     const amount = parseFloat(document.getElementById('actionAmount').value);
@@ -654,13 +693,10 @@ window.executeAction = async function() {
     };
 
     if (!account) { showMsg('❌ أدخل رقم الحساب', false); return; }
-
     const user = findUser(account);
     if (!user) { showMsg('❌ المستخدم غير موجود', false); return; }
-
     if ((currentAction === 'deposit' || currentAction === 'withdraw') && (!amount || amount <= 0)) {
-        showMsg('❌ أدخل مبلغاً صحيحاً', false);
-        return;
+        showMsg('❌ أدخل مبلغاً صحيحاً', false); return;
     }
 
     btn.disabled = true;
@@ -677,8 +713,7 @@ window.executeAction = async function() {
             const curr = parseFloat(user.balance || 0);
             if (curr < amount) {
                 showMsg(`❌ الرصيد غير كافٍ (المتاح: ${curr} SDG)`, false);
-                btn.disabled = false; btn.innerText = 'تأكيد';
-                return;
+                btn.disabled = false; btn.innerText = 'تأكيد'; return;
             }
             const newBal = curr - amount;
             await updateDoc(userRef, { balance: newBal });
@@ -691,10 +726,8 @@ window.executeAction = async function() {
             showMsg('✅ تم فك الحظر', true);
         } else if (currentAction === 'delete') {
             if (!confirm(`⚠️ سيتم حذف المستخدم "${user.name || user.id}" وكل معاملاته نهائياً. متابعة؟`)) {
-                btn.disabled = false; btn.innerText = 'تأكيد';
-                return;
+                btn.disabled = false; btn.innerText = 'تأكيد'; return;
             }
-            // حذف كل معاملات المستخدم
             const txQuery = query(collection(db, "transactions"), where("user_id", "==", user.id));
             const txSnap = await getDocs(txQuery);
             const batch = writeBatch(db);
@@ -704,7 +737,6 @@ window.executeAction = async function() {
             showMsg(`✅ تم حذف المستخدم و${txSnap.size} من معاملاته نهائياً`, true);
         }
 
-        // تحديث البيانات
         await loadAllData();
         setTimeout(() => closeActionModal(), 1500);
     } catch (e) {
@@ -716,7 +748,6 @@ window.executeAction = async function() {
     }
 };
 
-/* Modal الموافقة على الطلب */
 window.openApproveModal = function(id, type, amount, benefName, benefAcc, bankRef) {
     currentApproveId = id;
     currentApproveType = type;
@@ -762,8 +793,7 @@ window.confirmApprove = async function() {
             updateData.bank_ref = document.getElementById('bankRefInput').value;
             if (currBal < parseFloat(txData.amount)) {
                 alert('⚠️ رصيد المستخدم غير كافٍ للخصم');
-                btn.disabled = false; btn.innerText = 'تأكيد';
-                return;
+                btn.disabled = false; btn.innerText = 'تأكيد'; return;
             }
             await updateDoc(userRef, { balance: currBal - parseFloat(txData.amount) });
         } else {
@@ -792,7 +822,6 @@ window.rejectRequest = async function(id) {
     }
 };
 
-/* بدء */
 if (sessionStorage.getItem('admin_logged_in') === '1') {
     showAdminPanel();
 }
